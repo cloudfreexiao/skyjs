@@ -5,6 +5,7 @@
   "description": "SkyJS: pure-C skynet kernel with QuickJS (quickjs-ng) service runtime",
   "scripts": {
     "build": "make",
-    "lint": "node tools/lint.js js test/service tools"
+    "lint": "node tools/lint.js js test/service tools",
+    "test": "node tools/run_tests.js"
   }
 }

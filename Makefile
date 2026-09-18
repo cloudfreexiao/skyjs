@@ -86,4 +86,9 @@ clean:
 lint:
 	node tools/lint.js js test/service tools
 
-.PHONY: all clean lint
+# acceptance suite: builds everything first, then drives all scenarios
+# (see tools/run_tests.js header for the pass/fail model)
+test: all
+	node tools/run_tests.js
+
+.PHONY: all clean lint test
