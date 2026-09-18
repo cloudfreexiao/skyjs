@@ -474,6 +474,10 @@ static int
 worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t source, const void *msg, size_t sz) {
 	struct snjs *l = ud;
 	JSValue payload;
+	// the runtime may have been created on another worker thread (a nested
+	// LAUNCH during a foreign dispatch): re-anchor stack_top so QuickJS's
+	// stack-overflow check is measured against THIS thread's stack
+	JS_UpdateStackTop(l->rt);
 	if (type == PTYPE_SOCKET) {
 		// skynet_socket_message: {type, id, ud, buffer}; buffer points into the
 		// socket thread's rx buffer (DATA) or is NULL with text at sm+1 (padding)
@@ -564,6 +568,9 @@ optstring(struct skynet_context *ctx, const char *key, const char * str) {
 static int
 init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz) {
 	l->ctx = ctx;
+	// see worker_cb: init may run on a worker whose stack differs from the
+	// thread that called JS_NewRuntime2 (the nested-LAUNCH case)
+	JS_UpdateStackTop(l->rt);
 
 	const char *limit = optstring(ctx, "js_memlimit", NULL);
 	if (limit) {

@@ -20,6 +20,9 @@
 
 static void
 dump_value(lua_State *L, int idx, int depth) {
+	// recursion pushes new frames: pin the index absolutely or the nested
+	// lua_next below would read a stale negative index
+	idx = lua_absindex(L, idx);
 	int t = lua_type(L, idx);
 	switch (t) {
 	case LUA_TNIL:

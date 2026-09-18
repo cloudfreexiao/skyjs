@@ -116,20 +116,23 @@
             return;
         }
         if (type === PTYPE_RESPONSE) {
+            // routing order: skynet.call sessions, then timer sessions, and only
+            // as a last resort the cluster bridge (its handler ignores unknown
+            // sessions, so putting it first would swallow TIMEOUT replies)
             const p = pending_calls.get(session);
             if (p) {
                 pending_calls.delete(session);
                 p.resolve(msg);
                 return;
             }
-            if (cluster_resp_handler) {
-                cluster_resp_handler(session, msg);
-                return;
-            }
             const t = pending_timers.get(session);
             if (t) {
                 pending_timers.delete(session);
                 t();
+                return;
+            }
+            if (cluster_resp_handler) {
+                cluster_resp_handler(session, msg);
             }
             return;
         }
