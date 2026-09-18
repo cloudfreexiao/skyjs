@@ -17,6 +17,7 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 | socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通 |
 | lua-seri | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
+| cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
 | 基准 | `test/config_bench.json` | 往返吞吐、JS 堆占用 |
 
 与原版 Lua 节点的互通验收方式见根 README「验收状态」表。
@@ -119,7 +120,9 @@ cluster.snax、与 gate 复用。
 
 - 服务日志：stdout 由 `logger.so` 输出；JS 侧用 `console.log/info/debug/warn/
   error/trace`（js/skynet.js 实现，全部映射到 skynet 日志通道），或直接
-  `skynetcore.error`。
+  `skynetcore.error`。cluster 侧对端未启动时每次请求失败的
+  `socket-server error: invalid socket` 是 skynet 内核的固有噪音（每次
+  connect 拒绝一条），非故障。
 - 内存：per-service memstat（`skynetcore.mem()`），`js_memlimit` 配 OOM 限额，
   OOM 表现为 JS 抛错可被捕获（见 `test/service/js_oom.js`）。
 - 死循环：SIGNAL 命令打断机制，见 `test/service/js_deadloop.js` 与 snjs.c 头注释

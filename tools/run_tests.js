@@ -62,6 +62,9 @@ const SUITE = [
     // JS<->JS variant: the original config_cluster_a.json also queries a stock
     // lua node on :2530, which only exists in the manual interop scenario
     { name: "cluster", config: "test/config_cluster_jsjs.json", special: run_cluster },
+    // reconnect semantics: peer down -> calls fail immediately (no hang, no
+    // background retry); peer up -> the next call reconnects on demand
+    { name: "cluster_fail", config: "test/config_cluster_fail.json", special: run_cluster_fail },
     { name: "bench", config: "test/config_bench.json", timeout_ms: 60000,
         must_re: [/BENCH N=20000 c_echo=\d+ msg\/s j_echo=\d+ msg\/s/] },
 ];
@@ -95,10 +98,9 @@ function watch_lines(child, on_line) {
 
 /* --------------------------------------------------------- scenario runner */
 
-// launch one ./skyjs <config> and wait for markers; returns { ok, why, log }
-function run_config(cfg, must, never, timeout_ms, must_re) {
+// watch an already-running child for must/never markers; returns { ok, why, log }
+function watch_markers(child, must, never, timeout_ms, must_re) {
     return new Promise((resolve) => {
-        const child = spawn(BIN, [cfg], { cwd: ROOT });
         const pending = new Set(must);
         const lines = [];
         let bad = null;
@@ -108,7 +110,7 @@ function run_config(cfg, must, never, timeout_ms, must_re) {
             kill_tree(child);
         }, timeout_ms);
 
-        const check_line = (line) => {
+        watch_lines(child, (line) => {
             if (lines.length < 400) lines.push(line);
             if (bad) return;
             for (const n of never) {
@@ -128,9 +130,7 @@ function run_config(cfg, must, never, timeout_ms, must_re) {
                 clearTimeout(timer);
                 kill_tree(child);
             }
-        };
-
-        watch_lines(child, check_line).then(() => {
+        }).then(() => {
             clearTimeout(timer);
             if (bad) return resolve({ ok: false, why: bad, log: lines });
             if (child.signalCode === "SIGSEGV" || child.signalCode === "SIGBUS" ||
@@ -144,6 +144,12 @@ function run_config(cfg, must, never, timeout_ms, must_re) {
             resolve({ ok: true, why: "", log: lines });
         });
     });
+}
+
+// launch one ./skyjs <config> and wait for markers; returns { ok, why, log }
+function run_config(cfg, must, never, timeout_ms, must_re) {
+    const child = spawn(BIN, [cfg], { cwd: ROOT });
+    return watch_markers(child, must, never, timeout_ms, must_re);
 }
 
 /* ---------------------------------------------------- special: lua-seri */
@@ -208,6 +214,79 @@ async function run_cluster(cfg, never, timeout_ms) {
         never, timeout_ms, []);
     kill_tree(b);
     return r;
+}
+
+/* ------------------------------------------- special: reconnect semantics */
+
+// Two phases over ONE node A process (a second watch after A dies would
+// never see its already-emitted 'end'/'close' events, so one watch_lines
+// state machine covers both phases):
+//   phase 1: node2 down -> two calls 500ms apart are rejected immediately
+//   (a background-retry regression hangs here and times out);
+//   phase 2: node B boots mid-stream and A's next call reconnects on demand.
+async function run_cluster_fail(cfg, never, timeout_ms) {
+    free_cluster_ports();
+    return new Promise((resolve) => {
+        const a = spawn(BIN, [cfg], { cwd: ROOT });
+        const b_ready_re = /listen port 2529 -> id [1-9]/;
+        const pending = new Set(["CLUSTER DOWN OK1", "CLUSTER DOWN OK2",
+            "CLUSTER RESULT: [\"svc2:hello\",42]"]);
+        const lines = [];
+        let b = null;
+        let b_up = false;
+        let bad = null;
+        const cleanup = () => {
+            kill_tree(a);
+            if (b) kill_tree(b);
+        };
+        const timer = setTimeout(() => {
+            bad = "timeout after " + timeout_ms + "ms; missing: [" +
+                [...pending].join("; ") + "]";
+            cleanup();
+        }, timeout_ms);
+
+        watch_lines(a, (line) => {
+            if (lines.length < 400) lines.push(line);
+            if (bad) return;
+            for (const n of never) {
+                if (line.includes(n)) {
+                    bad = "forbidden marker: " + n;
+                    cleanup();
+                    return;
+                }
+            }
+            for (const m of [...pending]) {
+                if (line.includes(m)) pending.delete(m);
+            }
+            if (!pending.has("CLUSTER DOWN OK2") && b === null) {
+                // phase 1 complete: boot node B; A keeps calling and will
+                // reconnect on demand once B listens
+                b = spawn(BIN, [path.join(ROOT, "test", "config_cluster_b.json")],
+                    { cwd: ROOT });
+                watch_lines(b, (bline) => {
+                    // id must be positive: "id -1" means the port was taken
+                    if (b_ready_re.test(bline)) b_up = true;
+                });
+            }
+            if (pending.size === 0) {
+                clearTimeout(timer);
+                cleanup();
+            }
+        }).then(() => {
+            clearTimeout(timer);
+            if (bad) return resolve({ ok: false, why: bad, log: lines });
+            if (a.signalCode === "SIGSEGV" || a.signalCode === "SIGBUS" ||
+                a.signalCode === "SIGABRT") {
+                return resolve({ ok: false, why: "crashed: " + a.signalCode, log: lines });
+            }
+            if (pending.size > 0) {
+                return resolve({ ok: false, why: "exit before markers; missing: [" +
+                    [...pending].join("; ") + "]" +
+                    (b && !b_up ? " (node B never ready)" : ""), log: lines });
+            }
+            resolve({ ok: true, why: "", log: lines });
+        });
+    });
 }
 
 /* ------------------------------------------------------------------ main */

@@ -24,12 +24,18 @@
  *   "register <name>\n"                  register local name (handle = sender)
  * Replies to "req" come back as PTYPE_RESPONSE with the caller's session and
  * the untouched remote payload.
+ *
+ * Reconnect semantics mirror the stock socketchannel as used by
+ * clustersender: NO background retry loop. A request landing on a
+ * disconnected node issues ONE connect attempt; if the attempt fails, or a
+ * live connection dies, every request pending on that node fails right away
+ * (PTYPE_ERROR back to the JS caller) and the NEXT request re-attempts the
+ * connect.
  */
 
 #include "skynet.h"
 #include "skynet_server.h"
 #include "skynet_socket.h"
-#include "skynet_timer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,6 +126,7 @@ struct pending_send {	// sent to a remote node, awaiting its reply
 	uint32_t remote_session;
 	uint32_t source;	// JS caller handle
 	int js_session;		// caller's session (for PTYPE_RESPONSE back)
+	int node_idx;		// index into nodes[] (failed on disconnect)
 };
 
 struct name_entry {
@@ -136,7 +143,6 @@ struct clusterd {
 	struct pending_send psend[MAX_PENDING];
 	struct name_entry names[MAX_NODE];
 	uint32_t send_session;	// outbound session counter (>INT32_MAX wraps to 1)
-	int retry_session;	// pending reconnect timer (0 = none)
 };
 
 /* ------------------------- helpers -------------------------------------- */
@@ -609,18 +615,20 @@ node_get(struct clusterd *cd, const char *name) {
 	return NULL;
 }
 
-static void arm_retry(struct clusterd *cd);
-
-static void
+// issue ONE connect attempt for a node. Returns 0 when the attempt could
+// not even be started (the caller must fail the request right away); 1 when
+// the attempt is in flight (or a connection already exists). The outcome
+// arrives later as a CONNECT/ERROR event; nothing is retried in the
+// background -- the next request re-attempts the connect.
+static int
 node_connect(struct clusterd *cd, struct node *n) {
-	if (n->sock_id >= 0 || n->connecting || n->port == 0) return;
+	if (n->sock_id >= 0 || n->connecting) return 1;
+	if (n->port == 0) return 0;
 	n->connecting = 1;
 	int id = skynet_socket_connect(cd->ctx, n->host, n->port);
 	if (id < 0) {
-		// remote not up yet: retry on a 1s timer
 		n->connecting = 0;
-		arm_retry(cd);
-		return;
+		return 0;
 	}
 	n->sock_id = id;
 	struct conn *c = conn_alloc(cd);
@@ -629,27 +637,32 @@ node_connect(struct clusterd *cd, struct node *n) {
 		c->outbound = 1;
 		// ready is set when the CONNECT event arrives
 	}
+	return 1;
 }
 
 static void
-node_retry_all(struct clusterd *cd);
-
-static void
-arm_retry(struct clusterd *cd) {
-	if (cd->retry_session == 0) {
-		cd->retry_session = skynet_context_newsession(cd->ctx);
-		skynet_timeout(skynet_context_handle(cd->ctx), 100, cd->retry_session);
+node_clear_queue(struct node *n) {
+	struct pmsg *m = n->qhead;
+	while (m) {
+		struct pmsg *next = m->next;
+		skynet_free(m->buf);
+		skynet_free(m);
+		m = next;
 	}
+	n->qhead = n->qtail = NULL;
 }
 
+// the node's connection is down and will NOT be retried in the background:
+// drop queued frames and fail every pending request on this node at once,
+// so callers observe the outage immediately instead of hanging
 static void
-node_retry_all(struct clusterd *cd) {
-	cd->retry_session = 0;
-	for (int i = 0; i < MAX_NODE; i++) {
-		if (cd->nodes[i].used) {
-			if (cd->nodes[i].sock_id < 0) {
-				node_connect(cd, &cd->nodes[i]);
-			}
+node_fail_pending(struct clusterd *cd, int idx) {
+	node_clear_queue(&cd->nodes[idx]);
+	for (int i = 0; i < MAX_PENDING; i++) {
+		struct pending_send *ps = &cd->psend[i];
+		if (ps->used && ps->node_idx == idx) {
+			skynet_send(cd->ctx, 0, ps->source, PTYPE_ERROR, ps->js_session, NULL, 0);
+			ps->used = 0;
 		}
 	}
 }
@@ -825,6 +838,8 @@ handle_command(struct clusterd *cd, uint32_t source, int session, const char *ms
 			strncpy(n->host, host, MAX_NAME - 1);
 			n->port = port;
 			if (n->sock_id < 0) {
+				// register-time attempt; failure is not fatal -- requests
+				// re-attempt on demand
 				node_connect(cd, n);
 			}
 		}
@@ -860,7 +875,11 @@ handle_command(struct clusterd *cd, uint32_t source, int session, const char *ms
 			return;
 		}
 		if (n->sock_id < 0 && !n->connecting) {
-			node_connect(cd, n);	// frames queue until the connection is up
+			if (!node_connect(cd, n)) {
+				skynet_error(cd->ctx, "CLUSTERD node [%s] connect failed", nodename);
+				skynet_send(cd->ctx, 0, source, PTYPE_ERROR, session, NULL, 0);
+				return;
+			}	// frames queue until the connection is up
 		}
 		uint32_t addr = 0;
 		const char *name = NULL;
@@ -880,6 +899,7 @@ handle_command(struct clusterd *cd, uint32_t source, int session, const char *ms
 			ps->remote_session = remote_session;
 			ps->source = source;
 			ps->js_session = session;
+			ps->node_idx = (int)(n - cd->nodes);
 		}
 		return;
 	}
@@ -931,8 +951,9 @@ clusterd_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_
 				if (cd->nodes[i].used && cd->nodes[i].sock_id == sm->id) {
 					cd->nodes[i].sock_id = -1;
 					cd->nodes[i].connecting = 0;
-					// a live connection died: keep reconnecting in background
-					arm_retry(cd);
+					// no background retry: fail everything pending on this
+					// node now; the next request re-attempts the connect
+					node_fail_pending(cd, i);
 					break;
 				}
 			}
@@ -945,10 +966,6 @@ clusterd_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_
 		handle_command(cd, source, session, msg, sz);
 		break;
 	case PTYPE_RESPONSE:
-		if (session == cd->retry_session) {
-			node_retry_all(cd);
-			break;
-		}
 		dispatch_local_reply(cd, session, msg, sz);
 		break;
 	case PTYPE_ERROR: {

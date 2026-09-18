@@ -43,7 +43,7 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 git submodule update --init    # skynet + quickjs-ng(两个 submodule)
 make                           # 产出 ./skyjs 主程序 + cservice/*.so + test 服务
 make test/seri_tool            # lua-seri 参考对拍工具(链接 3rd/skynet/3rd/lua 的原版 Lua 源码)
-make test                      # 自动化验收套件：9 场景日志断言 + 崩溃检测，
+make test                      # 自动化验收套件：10 场景日志断言 + 崩溃检测，
                                # 默认跑 2 轮抓偶发问题(node tools/run_tests.js，--repeat/--filter 可调)
 ```
 
@@ -80,6 +80,7 @@ skynet.start(() => {
 | socket 桥 | `test/config_js_socket.json` | JS TCP echo server + 客户端 + nc 外部互通 |
 | lua-seri 对拍 | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster_jsjs.json`(无 Lua 节点依赖) |
+| cluster 重连语义 | `test/config_cluster_fail.json` | 对端宕机→call 立即失败(无后台重试)；对端上线→下一次 call 按需重连成功 |
 | **与原版互通** | skyjs A + `cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` | SkyJS↔原版 Lua 节点双向 cluster.call/query |
 | 基准 | `test/config_bench.json` | 串行往返 ~40-66 万 msg/s,JS 堆 ~230KB |
 

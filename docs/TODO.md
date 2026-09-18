@@ -30,8 +30,13 @@
 
 ## 功能增强(按优先级)
 
-1. **cluster 断线重连退避**:skyclusterd 当前为固定 1s 重试(skynet_timeout
-   100cs);宜加指数退避 + 抖动,避免对端宕机时的重试风暴。
+1. **cluster 重连语义已对齐官方**(2026-09 完成,原计划"指数退避+抖动"作废):
+   核对官方源码发现 cluster 路径(socketchannel 一律 connect-once)本无后台
+   重连——重连完全由下一次请求驱动,每请求至多一次 connect 尝试,失败立即
+   报错。skyclusterd 已删除固定 1s 后台重试(arm_retry/node_retry_all),
+   断线或连接失败时立即 PTYPE_ERROR 失败该节点全部 pending 请求并清空待发
+   帧,下一个请求按需重新 connect。验收场景 `test/config_cluster_fail.json`
+   (套件用例 cluster_fail:对端宕机→立即失败×2→对端上线→按需重连成功)。
 2. **skyclusterd 分帧组装抽公共层**:inbound(request)/outbound(response) 的
    分帧组装可抽公共层。遗留死代码(`conn_send_frame` 函数与
    `COMBINE_T_REMOVED_PLACEHOLDER` 宏)已清理,编译零告警。
