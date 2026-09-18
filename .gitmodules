@@ -1,0 +1,6 @@
+[submodule "3rd/skynet"]
+	path = 3rd/skynet
+	url = https://github.com/cloudwu/skynet
+[submodule "3rd/quickjs"]
+	path = 3rd/quickjs
+	url = https://github.com/quickjs-ng/quickjs

@@ -1,0 +1,7 @@
+# build artifacts
+build/
+cservice/*.so
+test/cservice/*.so
+test/seri_tool
+/skyjs
+*.dSYM
