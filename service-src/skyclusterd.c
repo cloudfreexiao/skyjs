@@ -193,8 +193,6 @@ seri_first_string(const uint8_t *buf, size_t sz, size_t *outlen) {
 	return (const char *)buf + 1;
 }
 
-#define COMBINE_T_REMOVED_PLACEHOLDER 0
-
 /* ------------------------- pending tables -------------------------------- */
 
 static void
@@ -281,20 +279,6 @@ conn_send_raw(struct clusterd *cd, struct conn *c, const void *buf, size_t sz) {
 	void *copy = skynet_malloc(sz);
 	memcpy(copy, buf, sz);
 	skynet_socket_send(cd->ctx, c->sock_id, copy, (int)sz);
-}
-
-// one framed message (content without the 2-byte length header)
-static void
-conn_send_frame(struct clusterd *cd, struct conn *c, const uint8_t *content, size_t sz) {
-	uint8_t head[2];
-	fill_header(head, (int)sz);
-	uint8_t *frame = skynet_malloc(sz + 2);
-	memcpy(frame, head, 2);
-	memcpy(frame + 2, content, sz);
-	void *copy = skynet_malloc(sz + 2);
-	memcpy(copy, frame, sz + 2);
-	skynet_free(frame);
-	skynet_socket_send(cd->ctx, c->sock_id, copy, (int)(sz + 2));
 }
 
 // send a response, splitting into multipart frames when needed
@@ -669,7 +653,6 @@ node_retry_all(struct clusterd *cd) {
 		}
 	}
 }
-
 
 // emit one framed message (content + 2-byte big-endian length prefix)
 static void
