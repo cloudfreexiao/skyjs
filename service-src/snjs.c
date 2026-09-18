@@ -186,7 +186,7 @@ dump_exception(struct snjs *l, const char *where) {
 	JS_FreeValue(l->jsc, exc);
 }
 
-// intcommand: skynet_command results are ":hex" (REG/QUERY/LAUNCH) or decimal
+// int_command: skynet_command results are ":hex" (REG/QUERY/LAUNCH) or decimal
 // (TIMEOUT); mirror the lua intcommand behavior of skipping the leading ':'.
 static int
 intcmd(struct skynet_context *ctx, const char *cmd, const char *parm) {
@@ -442,8 +442,8 @@ register_bridge(struct snjs *l) {
 	JSValue obj = JS_NewObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, obj, "send", JS_NewCFunction(l->jsc, js_send, "send", 4));
 	JS_SetPropertyStr(l->jsc, obj, "command", JS_NewCFunction(l->jsc, js_command, "command", 2));
-	JS_SetPropertyStr(l->jsc, obj, "intcommand", JS_NewCFunction(l->jsc, js_intcommand, "intcommand", 2));
-	JS_SetPropertyStr(l->jsc, obj, "genid", JS_NewCFunction(l->jsc, js_genid, "genid", 0));
+	JS_SetPropertyStr(l->jsc, obj, "int_command", JS_NewCFunction(l->jsc, js_intcommand, "int_command", 2));
+	JS_SetPropertyStr(l->jsc, obj, "gen_id", JS_NewCFunction(l->jsc, js_genid, "gen_id", 0));
 	JS_SetPropertyStr(l->jsc, obj, "now", JS_NewCFunction(l->jsc, js_now, "now", 0));
 	JS_SetPropertyStr(l->jsc, obj, "error", JS_NewCFunction(l->jsc, js_error, "error", 1));
 	JS_SetPropertyStr(l->jsc, obj, "mem", JS_NewCFunction(l->jsc, js_mem, "mem", 0));
@@ -460,8 +460,8 @@ register_bridge(struct snjs *l) {
 	// js-seri extensions (pack/unpack/io, see js-seri.c)
 	JS_SetPropertyStr(l->jsc, obj, "pack", JS_NewCFunction(l->jsc, js_seri_pack, "pack", 0));
 	JS_SetPropertyStr(l->jsc, obj, "unpack", JS_NewCFunction(l->jsc, js_seri_unpack, "unpack", 1));
-	JS_SetPropertyStr(l->jsc, obj, "readfile", JS_NewCFunction(l->jsc, js_seri_readfile, "readfile", 1));
-	JS_SetPropertyStr(l->jsc, obj, "writefile", JS_NewCFunction(l->jsc, js_seri_writefile, "writefile", 2));
+	JS_SetPropertyStr(l->jsc, obj, "read_file", JS_NewCFunction(l->jsc, js_seri_readfile, "read_file", 1));
+	JS_SetPropertyStr(l->jsc, obj, "write_file", JS_NewCFunction(l->jsc, js_seri_writefile, "write_file", 2));
 	JS_SetPropertyStr(l->jsc, obj, "str", JS_NewCFunction(l->jsc, js_seri_ab2str, "str", 1));
 	JSValue g = JS_GetGlobalObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, g, "skynetcore", obj);

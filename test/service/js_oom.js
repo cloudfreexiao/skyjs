@@ -3,9 +3,9 @@
 // (caught here), proving memlimit semantics end-to-end.
 globalThis.dispatch = function (msg, session, source) {
     if (msg === "oom") {
-        var keep = [];
+        const keep = [];
         try {
-            for (var i = 0; i < 1024; i++) {
+            for (let i = 0; i < 1024; i++) {
                 keep.push(new ArrayBuffer(1024 * 1024));
             }
             return "OOM_NOT_TRIGGERED";

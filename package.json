@@ -1,0 +1,10 @@
+{
+  "name": "skyjs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SkyJS: pure-C skynet kernel with QuickJS (quickjs-ng) service runtime",
+  "scripts": {
+    "build": "make",
+    "lint": "node tools/lint.js js test/service tools"
+  }
+}

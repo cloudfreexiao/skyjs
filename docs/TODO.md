@@ -32,8 +32,9 @@
 
 1. **cluster 断线重连退避**:skyclusterd 当前为固定 1s 重试(skynet_timeout
    100cs);宜加指数退避 + 抖动,避免对端宕机时的重试风暴。
-2. **skyclusterd 代码清理**:`conn_send_frame` 等遗留死代码;inbound(request)/
-   outbound(response) 的分帧组装可抽公共层。
+2. **skyclusterd 分帧组装抽公共层**:inbound(request)/outbound(response) 的
+   分帧组装可抽公共层。遗留死代码(`conn_send_frame` 函数与
+   `COMBINE_T_REMOVED_PLACEHOLDER` 宏)已清理,编译零告警。
 3. **二进制消息约定文档化**:text 协议走 UTF-8 字符串、lua 协议走
    ArrayBuffer(响应按调用方协议解码);建议为 JS 服务固化一份协议约定文档。
 4. **TypeScript 接入示例**:运行时为 QuickJS,加载 ts 转译产物(如 esbuild 打包)
@@ -41,6 +42,10 @@
 5. **互通测试一键化**:互通用例已迁入 `skyjs/test/cluster_lua/`(原版节点由
    `3rd/skynet` 子工程构建执行,CWD = 3rd/skynet,路径回指 `../../test/cluster_lua/`);
    可再补一个脚本把“submodule 构建 + 双节点启动 + 结果断言”串成一键验收。
+6. **console 面增强**:console.log/info/debug/warn/error/trace 已实现
+   (js/skynet.js 纯 JS 层,全级别映射 skynet 日志通道,Map/BigInt/ArrayBuffer
+   递归渲染,验收场景 `test/config_js_console.json`);后续按需可补
+   time/timeEnd、printf 风格格式化(%d/%s/%j)或独立 stdout 通道。
 
 ## 已知限制
 

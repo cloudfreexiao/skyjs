@@ -4,9 +4,9 @@
 // 3. write a JS-packed file for seri_tool dump inspection
 // 4. PTYPE_LUA roundtrip between two JS services (ArrayBuffer payloads)
 
-var seriBH = skynetcore.intcommand("LAUNCH", "snjs test/service/js_seri_b.js");
+const seri_b_h = skynetcore.int_command("LAUNCH", "snjs test/service/js_seri_b.js");
 skynet.register("main");
-skynetcore.intcommand("LAUNCH", "driver .main 300 start 0");
+skynetcore.int_command("LAUNCH", "driver .main 300 start 0");
 
 function check(cond, name) {
     if (!cond) skynetcore.error("SERI FAIL: " + name);
@@ -17,7 +17,7 @@ skynet.start(() => {
     skynet.dispatch("text", async (msg) => {
         if (msg !== "start") return "OK";
 
-        const ref = new Uint8Array(skynetcore.readfile("/tmp/seri_ref.bin"));
+        const ref = new Uint8Array(skynetcore.read_file("/tmp/seri_ref.bin"));
         const vals = skynet.unpack(ref.buffer);
         let ok = true;
         ok = check(vals[0] === null, "nil") && ok;
@@ -42,23 +42,23 @@ skynet.start(() => {
         const repacked = new Uint8Array(skynet.pack(
             vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6],
             vals[7], vals[8], vals[9], vals[10], vals[11], vals[12], [10, 20, 30]));
-        let byteeq = repacked.length === ref.length;
-        if (byteeq) {
+        let byte_eq = repacked.length === ref.length;
+        if (byte_eq) {
             for (let i = 0; i < ref.length; i++) {
-                if (repacked[i] !== ref[i]) { byteeq = false; break; }
+                if (repacked[i] !== ref[i]) { byte_eq = false; break; }
             }
         }
-        ok = check(byteeq, "byte-exact roundtrip (len " + repacked.length + " vs " + ref.length + ")") && ok;
+        ok = check(byte_eq, "byte-exact roundtrip (len " + repacked.length + " vs " + ref.length + ")") && ok;
 
         // JS -> file, later inspected with: test/seri_tool dump /tmp/seri_js.bin
-        skynetcore.writefile("/tmp/seri_js.bin", skynet.pack(
+        skynetcore.write_file("/tmp/seri_js.bin", skynet.pack(
             "two", 1, new Map([["k", 5n], ["pi", 3.14]]), [1, new Map()]));
         skynetcore.error("SERI wrote /tmp/seri_js.bin");
 
         // PTYPE_LUA roundtrip between two JS services
         const sent = skynet.pack("msg", 42, [1, 2]);
         skynetcore.error("SERI sent bytes: " + JSON.stringify(Array.from(new Uint8Array(sent))));
-        const back = await skynet.call(seriBH, "lua", sent);
+        const back = await skynet.call(seri_b_h, "lua", sent);
         skynetcore.error("SERI back bytes: " + JSON.stringify(Array.from(new Uint8Array(back))));
         const rb = skynet.unpack(back);
         skynetcore.error("SERI rb = " + JSON.stringify(rb.map(v => v instanceof Map ? [...v.entries()] : (typeof v === "bigint" ? v.toString() + "n" : v))));

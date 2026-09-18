@@ -4,7 +4,7 @@
 //
 // Usage:
 //   cluster.init()                       locate ".clusterd" (must be launched)
-//   cluster.setNodes({ n1: "ip:port" })  declare remote node addresses
+//   cluster.set_nodes({ n1: "ip:port" })  declare remote node addresses
 //   cluster.open(port)                   accept remote connections
 //   cluster.register("name")             publish a local name
 //   await cluster.call(node, "@name", ...args)  -> unpacked response values
@@ -35,27 +35,27 @@
     );
 
     function init() {
-        clusterd = skynetcore.intcommand("QUERY", ".clusterd");
+        clusterd = skynetcore.int_command("QUERY", ".clusterd");
         if (!clusterd) throw new Error("cluster: .clusterd not found, launch skyclusterd first");
     }
 
     // send a command line (+ optional binary payload) to skyclusterd
-    function rawcmd(line, payloadBytes) {
+    function raw_cmd(line, payload_bytes) {
         const head = new Uint8Array(line.length + 1);
         for (let i = 0; i < line.length; i++) head[i] = line.charCodeAt(i) & 0xff;
         head[line.length] = 10;	// '\n'
         let msg = head;
-        if (payloadBytes) {
-            msg = new Uint8Array(head.length + payloadBytes.length);
+        if (payload_bytes) {
+            msg = new Uint8Array(head.length + payload_bytes.length);
             msg.set(head, 0);
-            msg.set(payloadBytes, head.length);
+            msg.set(payload_bytes, head.length);
         }
-        const s = skynetcore.genid();
+        const s = skynetcore.gen_id();
         skynetcore.send(clusterd, PTYPE_TEXT, msg.buffer, s);
         return s;
     }
 
-    function addrstr(addr) {
+    function addr_str(addr) {
         // numeric handles cross as hex strings; names get the '@' prefix
         if (typeof addr === "number") return addr.toString(16);
         return addr.charCodeAt(0) === 64 ? addr : "@" + addr;
@@ -63,21 +63,21 @@
 
     globalThis.cluster = {
         init,
-        setNodes(obj) {
+        set_nodes(obj) {
             for (const k in obj) {
                 const sep = obj[k].lastIndexOf(":");
-                rawcmd("node " + k + " " + obj[k].slice(0, sep) + " " + obj[k].slice(sep + 1));
+                raw_cmd("node " + k + " " + obj[k].slice(0, sep) + " " + obj[k].slice(sep + 1));
             }
         },
         open(port) {
-            rawcmd("listen " + port);
+            raw_cmd("listen " + port);
         },
         register(name) {
-            rawcmd("register " + name);
+            raw_cmd("register " + name);
         },
         call(node, addr, ...vals) {
             const payload = new Uint8Array(skynet.pack(...vals));
-            const session = rawcmd("req " + node + " " + addrstr(addr), payload);
+            const session = raw_cmd("req " + node + " " + addr_str(addr), payload);
             return new Promise((resolve, reject) => {
                 pending.set(session, {
                     resolve: ab => resolve(skynet.unpack(ab)),
@@ -87,11 +87,11 @@
         },
         send(node, addr, ...vals) {
             const payload = new Uint8Array(skynet.pack(...vals));
-            rawcmd("push " + node + " " + addrstr(addr), payload);
+            raw_cmd("push " + node + " " + addr_str(addr), payload);
         },
         query(node, name) {
             const payload = new Uint8Array(skynet.pack(name));
-            const session = rawcmd("req " + node + " 0", payload);
+            const session = raw_cmd("req " + node + " 0", payload);
             return new Promise((resolve, reject) => {
                 pending.set(session, {
                     resolve: ab => resolve(skynet.unpack(ab)[0]),

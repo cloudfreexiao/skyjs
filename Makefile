@@ -31,7 +31,8 @@ QJS_OBJ := $(addprefix build/qjs_,$(notdir $(QJS_SRC:.c=.o)))
 
 TARGET := skyjs
 
-all: $(TARGET) cservice/logger.so cservice/snjs.so test/cservice/echo.so test/cservice/driver.so
+all: $(TARGET) cservice/logger.so cservice/snjs.so cservice/skyclusterd.so \
+	test/cservice/echo.so test/cservice/driver.so
 
 build:
 	mkdir -p build
@@ -82,4 +83,7 @@ cservice/skyclusterd.so: service-src/skyclusterd.c | cservice
 clean:
 	rm -rf build $(TARGET) test/seri_tool cservice/*.so test/cservice/*.so
 
-.PHONY: all clean
+lint:
+	node tools/lint.js js test/service tools
+
+.PHONY: all clean lint

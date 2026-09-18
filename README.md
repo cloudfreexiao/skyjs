@@ -33,7 +33,7 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 |---|---|
 | `lua_newstate(lalloc)` 内存统计/限额 | `JS_NewRuntime2(js_mf, l)` 头部记账分配器 + `js_memlimit` 配置 |
 | `lua_sethook` 死循环打断 | `JS_SetInterruptHandler` + `SIGNAL` 命令(实测 2 秒内打断) |
-| 协程 session↔coroutine | session↔Promise(skynet.js `pendingCalls`),await = yield |
+| 协程 session↔coroutine | session↔Promise(skynet.js `pending_calls`),await = yield |
 | 每消息 worker 线程归还 | dispatch 后 `JS_ExecutePendingJob` 排空(所有 await 挂在外部事件上) |
 | lua-seri 消息(PTYPE_LUA) | js-seri.c 字节级兼容(int64→BigInt,table→Map) |
 
@@ -42,7 +42,7 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 ```sh
 git submodule update --init    # skynet + quickjs-ng(两个 submodule)
 make                           # 产出 ./skyjs 主程序 + cservice/*.so + test 服务
-make tools/seri_tool           # lua-seri 参考对拍工具(链接 3rd/skynet/3rd/lua 的原版 Lua 源码)
+make test/seri_tool            # lua-seri 参考对拍工具(链接 3rd/skynet/3rd/lua 的原版 Lua 源码)
 ```
 
 平台:macOS/arm64 已验证;Linux 使用同 Makefile 的 else 分支(`-lrt --shared`)。
@@ -61,7 +61,7 @@ JS 服务脚本约定(加载顺序:js/skynet.js → js/socket.js → js/cluster.
 ```js
 skynet.start(() => {
     skynet.dispatch("text", async (msg, source, session) => {
-        const r = await skynet.call(targetHandle, "text", "ping");
+        const r = await skynet.call(target_handle, "text", "ping");
         return "reply:" + r;                 // 返回值自动回给调用方
     });
 });
@@ -73,6 +73,7 @@ skynet.start(() => {
 |---|---|---|
 | 纯 C 内核 | `./skyjs test/config.json` | logger + C echo bootstrap + SIGINT |
 | JS echo/打断/OOM | `test/config_js_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环、memlimit OOM 可捕获 |
+| console 面 | `test/config_js_console.json` | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染 |
 | 异步核心 | `test/config_js_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
 | socket 桥 | `test/config_js_socket.json` | JS TCP echo server + 客户端 + nc 外部互通 |
 | lua-seri 对拍 | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
@@ -86,7 +87,7 @@ skynet.start(() => {
   `skyclusterd`(单服务状态机,合并 clusterd/agent/sender,直听 socket 免 gate),
   **线协议与原版逐字节兼容**(混合字节序:帧长大端/字段小端,9 种请求帧,
   MULTI_PART=0x8000 分片,addr==0 名字查询,session 超 INT32_MAX 回绕)
-- cluster 明确不做:master/slave(harbor)、clusterproxy/cluster.snax、与 gate 复用
+- cluster 未实现:clusterproxy、cluster.snax、与 gate 复用(harbor 的 master-slave 多节点同样不在范围内)
 - 配置文件为 JSON(原版是 Lua 语法);所有键仍写入 env,服务可 GETENV 读取
 - 热更新(inject)、sharetable、snax 无对应物;调试以日志 + SIGNAL 打断为主
 

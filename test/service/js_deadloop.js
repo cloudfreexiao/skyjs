@@ -3,7 +3,7 @@
 // interrupt the loop via JS_SetInterruptHandler.
 globalThis.dispatch = function (msg, session, source) {
     if (msg === "loop") {
-        var x = 0;
+        let x = 0;
         while (true) {
             x++;
         }

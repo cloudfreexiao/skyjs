@@ -634,7 +634,7 @@ js_seri_unpack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 	return out;
 }
 
-// readfile(path) -> ArrayBuffer (acceptance/testing aid)
+// read_file(path) -> ArrayBuffer (acceptance/testing aid)
 JSValue
 js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
 	(void)this_val; (void)argc;
@@ -660,7 +660,7 @@ js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *
 	return ret;
 }
 
-// writefile(path, ArrayBuffer)
+// write_file(path, ArrayBuffer)
 JSValue
 js_seri_writefile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
 	(void)this_val; (void)argc;

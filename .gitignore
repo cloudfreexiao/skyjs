@@ -5,3 +5,6 @@ test/cservice/*.so
 test/seri_tool
 /skyjs
 *.dSYM
+
+# JS dev toolchain (lint / future TS build)
+node_modules/

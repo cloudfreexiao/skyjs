@@ -5,16 +5,16 @@ skynet.register("main");
 skynet.newservice("skyclusterd");
 cluster.init();
 cluster.register("main");
-cluster.setNodes({ node2: "127.0.0.1:2529" });
+cluster.set_nodes({ node2: "127.0.0.1:2529" });
 cluster.open(2528);
 cluster.register("svc1");
-skynetcore.intcommand("LAUNCH", "driver .main 300 start 0");
+skynetcore.int_command("LAUNCH", "driver .main 300 start 0");
 
 skynet.start(() => {
     skynet.dispatch("text", async (msg) => {
         if (msg !== "start") return "OK";
         try {
-            cluster.setNodes({ lua: "127.0.0.1:2530" });
+            cluster.set_nodes({ lua: "127.0.0.1:2530" });
             const lh = await cluster.query("lua", "main");
             skynetcore.error("JS2LUA handle=" + lh);
             const r = await cluster.call("lua", "@main", "from-js", 33);
