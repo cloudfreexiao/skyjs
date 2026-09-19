@@ -6,6 +6,7 @@
   "scripts": {
     "build": "make",
     "lint": "node tools/lint.js js test/service tools",
-    "test": "node tools/run_tests.js"
+    "test": "node tools/run_tests.js",
+    "interop": "node tools/run_interop.js"
   }
 }

@@ -5,14 +5,15 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 
 ## 验收测试
 
-按场景运行 `test/config_*.json` 并人工核对日志输出（无自动断言框架）；
-改动后跑对应场景，对比 `test/service/*.js` 中的预期输出。
+自动化验收:`make test`(tools/run_tests.js 逐行断言,覆盖全部场景);
+互通双向断言一键化:`make interop`(tools/run_interop.js);改动后跑对应
+场景,预期输出对照 `test/service/*.js` 中的标记。
 
 | 场景 | 配置 | 验证点 |
 |---|---|---|
 | 纯 C 内核 | `test/config.json` | logger + C echo bootstrap |
 | JS echo/打断/OOM | `test/config_js_echo.json`、`config_js_deadloop.json`、`config_js_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
-| console 面 | `test/config_js_console.json` | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染 |
+| console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
 | socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通 |
 | lua-seri | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
@@ -53,12 +54,83 @@ RESPONSE/ERROR 回包与 Promise 排空。
 - 消息调度模型同构于 `lualib/skynet.lua`：session ↔ `pending_calls`，await = yield；
   每个 await 都挂在外部事件上，保证 dispatch 返回时 pending job 队列已排空。
   **不要引入纯 JS 定时器/微任务挂起导致 worker 线程无法归还的机制。**
-- 文本协议（PTYPE_TEXT=0）跨层为字符串；lua 协议（PTYPE_LUA=10）为 `ArrayBuffer`
-  （`skynet.pack/unpack`）；int64 经 BigInt 往返，JS number 超 2^53 需用 BigInt；
-  TYPE_USERDATA（指针）跨 VM 禁传，unpack 遇到即报错。
+- 消息跨层类型契约（text=字符串 / lua 与响应=ArrayBuffer / pack-unpack 类型映射）
+  固化于下节「二进制消息协议约定」，修改边界实现前先核对该节。
 - 底层 `TIMEOUT` 命令单位是 **centisecond(10ms)**；`skynet.sleep(ms)` 已做换算。
 - `snjs.so` 静态编入 quickjs（`-fvisibility=hidden`），仅导出 `snjs_*` 四个 ABI 符号
   （dlopen 为 RTLD_GLOBAL，防符号冲突）。
+
+## 二进制消息协议约定
+
+JS 服务跨层收发消息的类型契约。实现锚点：snjs.c `worker_cb`（接收方向）、
+`js_send`/`js_response`（发送方向），js/skynet.js `skynet_call`/`__snjs_wrap`。
+协议常量同 skynet：PTYPE_TEXT=0、PTYPE_RESPONSE=1、PTYPE_SOCKET=6、
+PTYPE_ERROR=7、PTYPE_LUA=10。修改 C/JS 边界时不得破坏本节语义。
+
+### 跨层类型规则
+
+接收（C → JS）：dispatch 拿到的 JS 类型由消息协议类型决定：
+
+| 协议类型 | JS 侧类型 | 说明 |
+|---|---|---|
+| PTYPE_LUA、PTYPE_RESPONSE | `ArrayBuffer` | 原始字节拷贝，C 层不解释内容（binary-safe） |
+| PTYPE_TEXT 及其余全部类型 | UTF-8 字符串 | `JS_NewStringLen` 解码 |
+| PTYPE_SOCKET | 预解析对象 `{type, id, ud, data}` | socket.js 消费，不属本约定 |
+
+PTYPE_RESPONSE/PTYPE_ERROR 由 skynet.js 运行时路由（pending_calls / 定时器 /
+cluster 桥），不会进入用户注册的 dispatch。
+
+发送（JS → C）：`skynetcore.send` / `skynetcore.response` 的消息参数传
+`ArrayBuffer` 即二进制载荷原样透传，传字符串按 UTF-8 编码。dispatch 的返回值由
+`__snjs_wrap` 原样交回 `response`（string / ArrayBuffer 均可），因此 lua 协议
+服务的应答必须返回 `skynet.pack(...)` 打包的 ArrayBuffer（应答体按 seri 流解码），
+text 协议服务返回字符串。
+
+响应解码按调用方协议：应答统一以 ArrayBuffer 到达 JS 层，解码方式由
+`skynet.call` 发起时的协议决定——`"lua"` 调用保持 ArrayBuffer，由调用方
+`skynet.unpack`；text 协议调用由 skynet.js 以 `skynetcore.str` 解码为字符串再
+resolve。
+
+### skynet.pack / skynet.unpack 与 lua-seri 的兼容关系
+
+`skynet.pack(...)` 返回 ArrayBuffer；`skynet.unpack(buf)` 返回按 seri 流顺序排列
+的值数组（buf 亦接受字符串，按其 UTF-8 字节流解）。js-seri.c 与原版 lua-seri
+字节级兼容（验收：`test/seri_tool` 对拍 + `test/config_js_seri.json` roundtrip），
+pack 产物可跨 JS/Lua 节点互通。
+
+JS → seri（pack）类型映射：
+
+| JS 类型 | seri 编码 |
+|---|---|
+| `null` / `undefined` | nil |
+| `boolean` | boolean |
+| `number` | 精确整数（绝对值 ≤ 2^53 且无小数部分）走整数编码（同 Lua 整数路径），其余 double |
+| `BigInt` | 整数编码，按值选最小宽度（zero/byte/word/dword/qword），与同值 number 产物一致 |
+| `string` | UTF-8 字符串，上限 0x7fffffff 字节 |
+| `Array` | table 数组部分（键 1..n，Lua 1-based） |
+| `Map` / 普通对象 | table hash 部分（对象取可枚举自有属性） |
+| 其余（function、symbol 等） | 报错 "unsupported type" |
+
+seri → JS（unpack）类型映射：
+
+| seri 类型 | JS 类型 |
+|---|---|
+| nil | `null` |
+| boolean | `boolean` |
+| 整数 qword（超出 int32 表达范围，即 Lua 侧 64 位整数） | `BigInt` |
+| 整数 zero/byte/word/dword、real | `number` |
+| string | `string` |
+| table | `Map`（数组部分展开为键 1..n，Lua 1-based） |
+| userdata | **unpack 直接抛 TypeError**（指针跨 VM 禁传，与原版语义一致） |
+
+### 边界行为备忘
+
+- int64 经 BigInt 往返：Lua 侧 64 位整数 unpack 恒为 `BigInt`（不回退 number）；
+  JS 侧表达超过 2^53 的整数必须自觉用 BigInt（number 在 pack 前已丢精度）。
+  int32 范围内的整数双向均为 number，`BigInt(5)` 与 `5` 的 pack 产物一致。
+- table 往返不对称：seri table 在 JS 侧一律解为 `Map`（含数组部分）；需要 JS
+  数组时自行按键 1..n 还原，不要假设 JS Array ↔ Lua 数组直通。
+- 嵌套深度超过 32 层 pack 报 "pack too deep"。
 
 ## 编码约定
 
@@ -90,7 +162,10 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
 - console 调试面（js/skynet.js 纯 JS 实现）：`log/info/debug/warn/error/trace` 全部
   映射 skynet 日志通道（`skynetcore.error`，带服务 handle 前缀进 logger）；参数递归
   渲染——Map 展开为条目、BigInt 带 `n` 后缀（避开 JSON.stringify 对 bigint 抛错）、
-  ArrayBuffer/Uint8Array 输出长度+hex 摘要、嵌套对象、深度限 3。
+  ArrayBuffer/Uint8Array 输出长度+hex 摘要、嵌套对象、深度限 3。首参为含 `%` 的
+  字符串时启用 printf 格式化（%s/%d/%i/%f/%j/%o/%%，未知/缺参占位符原样，多余
+  参数追加尾部）；`time/timeLog/timeEnd` 用 Date.now 墙钟计时，纯观测不挂
+  dispatch（方法名保持标准 console API 面，同 console.log）。
 - 服务脚本（`test/service/`）不新增裸全局函数，统一 `skynet.start(() =>
   skynet.dispatch(...))` 范式；`globalThis.dispatch` 直接覆盖是早期同步形式的存量
   写法，勿模仿。未来引入第三方 JS 库保持其原有风格，仅自有代码遵循本规范。

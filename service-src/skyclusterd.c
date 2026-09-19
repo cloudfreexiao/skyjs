@@ -74,6 +74,18 @@ struct pmsg {
 	size_t sz;
 };
 
+// in-progress multipart body reassembly, shared by the inbound request path
+// (large REQUEST bodies) and the outbound response path (large RESPONSE
+// bodies): a body is opened by its header frame and filled by PART frames
+// until total bytes have arrived
+struct reasm {
+	int active;
+	uint32_t session;
+	uint32_t total;
+	uint8_t *buf;
+	size_t len;
+};
+
 struct node {
 	char used;
 	char name[MAX_NAME];
@@ -89,17 +101,14 @@ struct conn {
 	int sock_id;
 	uint8_t *rx;		// frame reassembly buffer
 	size_t rxlen, rxcap;
-	// in-progress large request (one per connection, remote sessions are
-	// unique per sender so this is unambiguous)
-	int lr_active;
-	uint32_t lr_session;
-	uint32_t lr_total;
-	uint32_t lr_addr;
-	uint8_t *lr_buf;
-	size_t lr_len;
-	char lr_name[MAX_NAME];
-	char lr_has_name;
-	char lr_push;
+	// in-progress large request body (one per connection, remote sessions
+	// are unique per sender so this is unambiguous); the header-phase
+	// addr/name/push metadata is remembered until the last chunk arrives
+	struct reasm rq;
+	uint32_t rq_addr;
+	char rq_name[MAX_NAME];
+	char rq_has_name;
+	char rq_push;
 	// outbound connections read RESPONSE frames (with multipart assembly);
 	// inbound connections read REQUEST frames
 	char outbound;
@@ -107,11 +116,8 @@ struct conn {
 	// connecting socket that later fails would hit the dec_sending_ref
 	// assertion in socket_server.c
 	char ready;
-	int or_active;
-	uint32_t or_session;
-	uint32_t or_total;
-	uint8_t *or_buf;
-	size_t or_len;
+	// in-progress large response body
+	struct reasm rs;
 };
 
 struct pending_recv {	// forwarded to a local service, awaiting its reply
@@ -199,6 +205,48 @@ seri_first_string(const uint8_t *buf, size_t sz, size_t *outlen) {
 	return (const char *)buf + 1;
 }
 
+/* ------------------------- multipart reassembly (shared) ------------------ */
+
+// open (or re-open) a body for the given session; a still-active older body
+// is discarded
+static void
+reasm_start(struct reasm *r, uint32_t session, uint32_t total) {
+	if (r->active) skynet_free(r->buf);
+	r->active = 1;
+	r->session = session;
+	r->total = total;
+	r->len = 0;
+	r->buf = skynet_malloc(total);
+}
+
+// append one chunk. Returns 1 only when is_end closes a matching body: *out
+// then hands the malloc'd buffer (ownership included) to the caller. Chunks
+// for an unknown/stale session or overflowing total are dropped silently,
+// same as the per-path checks this layer replaces.
+static int
+reasm_chunk(struct reasm *r, uint32_t session, int is_end, const uint8_t *data, size_t sz, uint8_t **out, size_t *outlen) {
+	if (!r->active || r->session != session) return 0;
+	if (r->len + sz > r->total) return 0;
+	memcpy(r->buf + r->len, data, sz);
+	r->len += sz;
+	if (!is_end) return 0;
+	*out = r->buf;
+	*outlen = r->len;
+	r->buf = NULL;
+	r->active = 0;
+	return 1;
+}
+
+// drop an unfinished body (connection closed)
+static void
+reasm_clear(struct reasm *r) {
+	if (r->active) {
+		skynet_free(r->buf);
+		r->buf = NULL;
+		r->active = 0;
+	}
+}
+
 /* ------------------------- pending tables -------------------------------- */
 
 static void
@@ -275,8 +323,8 @@ conn_close(struct clusterd *cd, struct conn *c) {
 	// layer -- never call skynet_socket_close here (asserts in
 	// socket_server.c dec_sending_ref). Only local state is released.
 	skynet_free(c->rx);
-	skynet_free(c->lr_buf);
-	skynet_free(c->or_buf);
+	reasm_clear(&c->rq);
+	reasm_clear(&c->rs);
 	memset(c, 0, sizeof(*c));
 }
 
@@ -329,7 +377,6 @@ conn_send_response(struct clusterd *cd, struct conn *c, uint32_t session, int ok
 // outbound connections carry RESPONSE frames: DWORD session + BYTE type + payload
 static void
 handle_response(struct clusterd *cd, struct conn *c, const uint8_t *frame, size_t sz) {
-	(void)c;
 	if (sz < 5) return;
 	uint32_t session = get_uint32(frame);
 	uint8_t type = frame[4];
@@ -345,28 +392,16 @@ handle_response(struct clusterd *cd, struct conn *c, const uint8_t *frame, size_
 	if (type == RESP_MULTI_BEGIN) {
 		if (sz < 9) return;
 		uint32_t total = get_uint32(frame + 5);
-		if (c->or_active) skynet_free(c->or_buf);
-		c->or_active = 1;
-		c->or_session = session;
-		c->or_total = total;
-		c->or_len = 0;
-		c->or_buf = skynet_malloc(total);
+		reasm_start(&c->rs, session, total);
 		return;
 	}
 	if (type == RESP_MULTI_PART || type == RESP_MULTI_END) {
-		if (!c->or_active || c->or_session != session) return;
-		if (c->or_len + psz > c->or_total) return;
-		memcpy(c->or_buf + c->or_len, payload, psz);
-		c->or_len += psz;
-		if (type == RESP_MULTI_END) {
-			uint8_t *done = c->or_buf;
-			size_t done_len = c->or_len;
-			c->or_buf = NULL;
-			c->or_active = 0;
-			void *copy = skynet_malloc(done_len);
-			memcpy(copy, done, done_len);
-			skynet_free(done);
-			skynet_send(cd->ctx, 0, ps->source, PTYPE_RESPONSE | PTYPE_TAG_DONTCOPY, ps->js_session, copy, done_len);
+		uint8_t *done;
+		size_t done_len;
+		if (reasm_chunk(&c->rs, session, type == RESP_MULTI_END, payload, psz, &done, &done_len)) {
+			// the reasm buffer is already a skynet_malloc'd block: hand its
+			// ownership to skynet directly (PTYPE_TAG_DONTCOPY)
+			skynet_send(cd->ctx, 0, ps->source, PTYPE_RESPONSE | PTYPE_TAG_DONTCOPY, ps->js_session, done, done_len);
 			ps->used = 0;
 		}
 		return;
@@ -524,35 +559,24 @@ handle_request(struct clusterd *cd, struct conn *c, const uint8_t *frame, size_t
 	}
 
 	if (is_part) {
-		if (!c->lr_active || c->lr_session != session) return;
-		if (c->lr_len + psz > c->lr_total) return;
-		memcpy(c->lr_buf + c->lr_len, payload, psz);
-		c->lr_len += psz;
-		if (part_end) {
+		uint8_t *done;
+		size_t done_len;
+		if (reasm_chunk(&c->rq, session, part_end, payload, psz, &done, &done_len)) {
 			// assembled: dispatch with the header-phase address/name
-			uint8_t *done = c->lr_buf;
-			size_t done_len = c->lr_len;
-			c->lr_buf = NULL;
-			c->lr_active = 0;
-			dispatch_request(cd, c, c->lr_push, c->lr_session, c->lr_addr,
-			                 c->lr_has_name ? c->lr_name : NULL, done, done_len);
+			dispatch_request(cd, c, c->rq_push, c->rq.session, c->rq_addr,
+			                 c->rq_has_name ? c->rq_name : NULL, done, done_len);
 			skynet_free(done);
 		}
 		return;
 	}
 
 	if (is_large_header) {
-		if (c->lr_active) skynet_free(c->lr_buf);
-		c->lr_active = 1;
-		c->lr_session = session;
-		c->lr_total = large_total;
-		c->lr_len = 0;
-		c->lr_buf = skynet_malloc(large_total);
-		c->lr_addr = addr;
-		c->lr_push = (char)is_push;
-		c->lr_has_name = (char)has_name;
+		reasm_start(&c->rq, session, large_total);
+		c->rq_addr = addr;
+		c->rq_push = (char)is_push;
+		c->rq_has_name = (char)has_name;
 		if (has_name) {
-			strncpy(c->lr_name, name, MAX_NAME - 1);
+			strncpy(c->rq_name, name, MAX_NAME - 1);
 		}
 		return;
 	}

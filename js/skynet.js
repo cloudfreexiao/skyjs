@@ -233,10 +233,80 @@
         return args.map(a => to_display(a, 0)).join(" ");
     }
 
+    // printf-style formatting, a subset of node's util.format: enabled only
+    // when the first argument is a string holding "%"; unknown specifiers and
+    // out-of-argument placeholders stay literal, extra arguments are appended
+    const FORMAT_SPECS = "sdifjo%";
+    function format_line(args) {
+        if (typeof args[0] !== "string" || args[0].indexOf("%") < 0) {
+            return console_line(args);
+        }
+        const fmt = args[0];
+        const rest = args.slice(1);
+        let ri = 0;
+        let out = "";
+        for (let i = 0; i < fmt.length; i++) {
+            const ch = fmt[i];
+            if (ch !== "%" || i + 1 >= fmt.length || FORMAT_SPECS.indexOf(fmt[i + 1]) < 0) {
+                out += ch;
+                continue;
+            }
+            const spec = fmt[i + 1];
+            i += 1;
+            if (spec === "%") { out += "%"; continue; }
+            if (ri >= rest.length) { out += "%" + spec; continue; }
+            const v = rest[ri++];
+            if (spec === "s") {
+                out += (typeof v === "string") ? v : to_display(v, 0);
+            } else if (spec === "d" || spec === "i") {
+                const n = (typeof v === "bigint") ? v : parseInt(v, 10);
+                out += String(n);
+            } else if (spec === "f") {
+                out += String(parseFloat(v));
+            } else if (spec === "j") {
+                try { out += JSON.stringify(v); } catch (e) { out += "[unserializable]"; }
+            } else {  // %o / %O
+                out += to_display(v, 0);
+            }
+        }
+        while (ri < rest.length) {
+            out += " " + to_display(rest[ri++], 0);
+        }
+        return out;
+    }
+
+    // console.time family: wall-clock via Date.now(), purely observational --
+    // nothing here ever suspends a dispatch, so the worker-thread guarantee
+    // of the scheduling model is untouched
+    const time_labels = new Map();
+    const time_label = (label) => (label === undefined ? "default" : label);
+    function elapsed_line(prefix, label, args) {
+        const t0 = time_labels.get(label);
+        if (t0 === undefined) {
+            return prefix + ": no such label '" + label + "'";
+        }
+        let line = label + ": " + (Date.now() - t0) + "ms";
+        if (args.length) line += " " + console_line(args);
+        return line;
+    }
+
     const console_obj = {};
     for (const level of ["log", "info", "debug", "warn", "error", "trace"]) {
-        console_obj[level] = function (...args) { skynetcore.error(console_line(args)); };
+        console_obj[level] = function (...args) { skynetcore.error(format_line(args)); };
     }
+    // standard console API names (web/node surface), like console.log itself
+    console_obj.time = function (label) {
+        time_labels.set(time_label(label), Date.now());
+    };
+    console_obj.timeLog = function (label, ...args) {
+        const k = time_label(label);
+        skynetcore.error(elapsed_line("console.timeLog", k, args));
+    };
+    console_obj.timeEnd = function (label, ...args) {
+        const k = time_label(label);
+        skynetcore.error(elapsed_line("console.timeEnd", k, args));
+        time_labels.delete(k);
+    };
     globalThis.console = console_obj;
 
     globalThis.skynet = {

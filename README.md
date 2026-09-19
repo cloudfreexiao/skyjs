@@ -43,8 +43,10 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 git submodule update --init    # skynet + quickjs-ng(两个 submodule)
 make                           # 产出 ./skyjs 主程序 + cservice/*.so + test 服务
 make test/seri_tool            # lua-seri 参考对拍工具(链接 3rd/skynet/3rd/lua 的原版 Lua 源码)
-make test                      # 自动化验收套件：10 场景日志断言 + 崩溃检测，
+make test                      # 自动化验收套件：11 场景日志断言 + 崩溃检测，
                                # 默认跑 2 轮抓偶发问题(node tools/run_tests.js，--repeat/--filter 可调)
+make interop                   # 一键互通验收：构建原版 skynet submodule、双节点启动、
+                               # 双向 cluster.call/query 断言(node tools/run_interop.js)
 ```
 
 平台:macOS/arm64 已验证;Linux 使用同 Makefile 的 else 分支(`-lrt --shared`)。
@@ -75,13 +77,13 @@ skynet.start(() => {
 |---|---|---|
 | 纯 C 内核 | `./skyjs test/config.json` | logger + C echo bootstrap + SIGINT |
 | JS echo/打断/OOM | `test/config_js_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环、memlimit OOM 可捕获 |
-| console 面 | `test/config_js_console.json` | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染 |
+| console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
 | socket 桥 | `test/config_js_socket.json` | JS TCP echo server + 客户端 + nc 外部互通 |
 | lua-seri 对拍 | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster_jsjs.json`(无 Lua 节点依赖) |
 | cluster 重连语义 | `test/config_cluster_fail.json` | 对端宕机→call 立即失败(无后台重试)；对端上线→下一次 call 按需重连成功 |
-| **与原版互通** | skyjs A + `cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` | SkyJS↔原版 Lua 节点双向 cluster.call/query |
+| **与原版互通** | `make interop`(一键自动化);手动:`cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` + `./skyjs test/config_cluster_interop.json` | SkyJS↔原版 Lua 节点双向 cluster.call/query |
 | 基准 | `test/config_bench.json` | 串行往返 ~40-66 万 msg/s,JS 堆 ~230KB |
 
 ## 与原版 Skynet 的差异
@@ -107,6 +109,6 @@ submodule 自身的构建树生成(`cd 3rd/skynet && make`,产物为未跟踪文
 ## 文档
 
 - [docs/TODO.md](docs/TODO.md) — 遗留事项、已知限制与后续计划
-- 与原版 Skynet 的互通验证:原版 Lua 节点由 submodule 自身的构建产物启动
-  (CWD = 3rd/skynet),配置与脚本在本项目 `test/cluster_lua/`,见上表
-  “与原版互通”一行
+- 与原版 Skynet 的互通验证:一键 `make interop`(构建 submodule + 双节点
+  启动 + 双向断言,见 tools/run_interop.js);原版 Lua 节点由 submodule 自身
+  的构建产物启动(CWD = 3rd/skynet),配置与脚本在本项目 `test/cluster_lua/`

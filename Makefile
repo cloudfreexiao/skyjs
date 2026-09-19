@@ -91,4 +91,9 @@ lint:
 test: all
 	node tools/run_tests.js
 
-.PHONY: all clean lint test
+# one-command interop acceptance against the stock Lua skynet node:
+# builds the 3rd/skynet submodule, boots both nodes, asserts both directions
+interop: all
+	node tools/run_interop.js
+
+.PHONY: all clean lint test interop

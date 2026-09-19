@@ -56,6 +56,11 @@ const SUITE = [
         must: ["DRIVER ERROR from"] },
     { name: "js_oom", config: "test/config_js_oom.json",
         must: ["DRIVER RESP: OOM_CAUGHT:InternalError:out of memory"] },
+    { name: "js_console", config: "test/config_js_console.json",
+        must: ["FMT [s] [7] [3] [1.25] [{\"k\":1}] [[2, 3]] [%]",
+               "FMT missing [1] trailing extra", "no such label 'NOPE'",
+               "CONSOLE_OK"],
+        must_re: [/T: \d+ms/] },
     { name: "js_socket", config: "test/config_js_socket.json",
         must: ["SOCKTEST ALL_ECHO_OK", "SOCKTEST conn 3 closed"] },
     { name: "js_seri", config: "test/config_js_seri.json", special: run_seri },
@@ -230,7 +235,7 @@ async function run_cluster_fail(cfg, never, timeout_ms) {
         const a = spawn(BIN, [cfg], { cwd: ROOT });
         const b_ready_re = /listen port 2529 -> id [1-9]/;
         const pending = new Set(["CLUSTER DOWN OK1", "CLUSTER DOWN OK2",
-            "CLUSTER RESULT: [\"svc2:hello\",42]"]);
+            "CLUSTER RESULT: [\"svc2:hello\",42]", "CLUSTER BIG OK: 40005"]);
         const lines = [];
         let b = null;
         let b_up = false;
@@ -339,4 +344,11 @@ async function main() {
     process.exit(failed === 0 ? 0 : 1);
 }
 
-main();
+if (require.main === module) {
+    main();
+}
+
+// reusable for sibling tools (tools/run_interop.js): run_tests only boots
+// its suite when it IS the main module
+module.exports = { ROOT, BIN, NEVER, watch_lines, watch_markers, kill_tree, free_cluster_ports,
+    run_config };

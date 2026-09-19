@@ -39,7 +39,17 @@ skynet.start(() => {
             try {
                 const r = await cluster.call("node2", "svc2", "hello", 41);
                 skynetcore.error("CLUSTER RESULT: " + JSON.stringify(r.map(v => v instanceof Map ? [...v.entries()] : v)));
-                return "CLUSTER_OK";
+                // exercise the multipart paths both ways: a >32KiB payload
+                // forces the large-body frames (header + chunks) on the
+                // request and the response side of this connection
+                const big = "x".repeat(40000);
+                const r2 = await cluster.call("node2", "svc2", big, 7);
+                if (r2[0] === "svc2:" + big && r2[1] === 8) {
+                    skynetcore.error("CLUSTER BIG OK: " + r2[0].length);
+                    return "CLUSTER_OK";
+                }
+                skynetcore.error("CLUSTER FAIL: big payload mismatch");
+                return "FAIL";
             } catch (e) { /* peer not listening yet, next call retries */ }
         }
         skynetcore.error("CLUSTER FAIL: reconnect did not succeed");

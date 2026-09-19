@@ -37,20 +37,34 @@
    断线或连接失败时立即 PTYPE_ERROR 失败该节点全部 pending 请求并清空待发
    帧,下一个请求按需重新 connect。验收场景 `test/config_cluster_fail.json`
    (套件用例 cluster_fail:对端宕机→立即失败×2→对端上线→按需重连成功)。
-2. **skyclusterd 分帧组装抽公共层**:inbound(request)/outbound(response) 的
-   分帧组装可抽公共层。遗留死代码(`conn_send_frame` 函数与
-   `COMBINE_T_REMOVED_PLACEHOLDER` 宏)已清理,编译零告警。
-3. **二进制消息约定文档化**:text 协议走 UTF-8 字符串、lua 协议走
-   ArrayBuffer(响应按调用方协议解码);建议为 JS 服务固化一份协议约定文档。
+2. **skyclusterd 分帧组装已抽公共层**(2026-09 完成):inbound(request)/
+   outbound(response) 的 multipart 重组(`lr_*`/`or_*` 两组同构字段)合并为
+   `struct reasm` + `reasm_start/chunk/clear`,两侧共用;响应侧重组后的
+   冗余 memcpy 一并消除(重组缓冲本就是 skynet_malloc 块,所有权直传给
+   PTYPE_TAG_DONTCOPY)。发送侧拆分不合并:两侧单帧 threshold 语义不同
+   (响应 `<=MULTI_PART`、请求 `<MULTI_PART`),系对拍原版 lua-cluster 的
+   逐字节行为,保持原样。验收:cluster_fail 用例新增 40KB 双向大帧断言
+   (CLUSTER BIG OK: 40005),旧代码交叉验证测试本身有效。
+3. **二进制消息约定已文档化**(2026-09 完成):跨层类型契约固化于
+   DEVELOPMENT.md「二进制消息协议约定」一节(text 协议走 UTF-8 字符串、lua 协议
+   与响应走 ArrayBuffer、响应按调用方协议解码、pack/unpack 与 lua-seri 字节级
+   兼容、int64 经 BigInt 往返、TYPE_USERDATA unpack 即报错)。
 4. **TypeScript 接入示例**:运行时为 QuickJS,加载 ts 转译产物(如 esbuild 打包)
    即可,无需改 C 层;补一个示例服务与构建脚本。
-5. **互通测试一键化**:互通用例已迁入 `skyjs/test/cluster_lua/`(原版节点由
-   `3rd/skynet` 子工程构建执行,CWD = 3rd/skynet,路径回指 `../../test/cluster_lua/`);
-   可再补一个脚本把“submodule 构建 + 双节点启动 + 结果断言”串成一键验收。
-6. **console 面增强**:console.log/info/debug/warn/error/trace 已实现
-   (js/skynet.js 纯 JS 层,全级别映射 skynet 日志通道,Map/BigInt/ArrayBuffer
-   递归渲染,验收场景 `test/config_js_console.json`);后续按需可补
-   time/timeEnd、printf 风格格式化(%d/%s/%j)或独立 stdout 通道。
+5. **互通测试已一键化**(2026-09 完成):`make interop`(等价
+   `node tools/run_interop.js`,复用 run_tests 的 watch/断言工具)串联
+   submodule 增量构建 → 端口清理 → skyjs 互配节点(必须先起,原版 Lua 节点
+   启动完成前要 call 进它)→ 原版 Lua 节点 → 双向断言(JS→lua 与 lua→JS
+   各自的 RESULT 标记)。专用互配场景 `test/config_cluster_interop.json`,
+   skyjs 侧 query 轮询等待 lua 就绪(每轮一次 connect 尝试,同官方语义)。
+   注意原版节点每次启动都会打 `KILL self`(bootstrap 服务自退),互配脚本
+   的 NEVER 哨兵只作用于 skyjs 流。手动双终端方式保留不变。
+6. **console 面增强已落地**(2026-09 完成,独立 stdout 通道未做):新增
+   time/timeLog/timeEnd(Date.now 墙钟,纯观测、不挂 dispatch,调度模型的
+   worker 归还保证不受影响)与 printf 风格格式化(%s/%d/%i/%f/%j/%o/%%,
+   首参为含 % 的字符串才启用,未知/缺参占位符原样保留,多余参数追加尾部;
+   方法名保持标准 console API 面)。验收场景已接入套件(用例 js_console,
+   套件增至 11 场景)。
 
 ## 已知限制
 
