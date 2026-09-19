@@ -25,7 +25,7 @@ struct snjs {
 
 	// js-seri helpers (evaluated in js_seri_init)
 	JSValue map_entries_fn;   // (m) => Array<[k,v]> | null
-	JSValue new_map_fn;       // (entries) => Map
+	JSValue build_map_fn;     // (flat [k0,v0,k1,v1,...]) => Map
 };
 
 // js-seri.c exports (used by snjs.c's register_bridge and init)

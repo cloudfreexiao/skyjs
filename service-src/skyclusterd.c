@@ -938,7 +938,11 @@ clusterd_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_
 		const struct skynet_socket_message *sm = msg;
 		switch (sm->type) {
 		case SKYNET_SOCKET_TYPE_CONNECT: {
-			// an outbound connection to a remote node is up: flush queued frames
+			// an outbound connection to a remote node is up: flush queued frames.
+			// Outbound = the sender side, so TCP_NODELAY matches the stock
+			// clustersender.lua (nodelay = true); accepted sockets keep the
+			// stock clusteragent behavior (no nodelay on the response side).
+			skynet_socket_nodelay(cd->ctx, sm->id);
 			struct conn *cc = conn_by_sock(cd, sm->id);
 			if (cc) cc->ready = 1;
 			for (int i = 0; i < MAX_NODE; i++) {

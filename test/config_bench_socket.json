@@ -1,0 +1,8 @@
+{
+  "thread": 4,
+  "cpath": "./cservice/?.so;./test/cservice/?.so",
+  "harbor": 0,
+  "bootstrap": "snjs test/service/bench_socket_server.js",
+  "logservice": "logger",
+  "profile": true
+}

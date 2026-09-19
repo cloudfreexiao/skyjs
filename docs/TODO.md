@@ -26,7 +26,11 @@
 - **Linux 验证未做**:目前仅在 macOS/arm64 全链验证。Makefile 已有 Linux 分支
   (`-lrt --shared`),待实测点:epoll 路径的 socket_server.c、动态库链接参数差异。
 - **长跑与统计对账**:计划中的 30 分钟长跑、memstat 与 RSS 对账尚未执行;
-  quickjs 内部缓存可能存在 memstat 盲区,误差量级待确认。
+  quickjs 内部缓存可能存在 memstat 盲区,误差量级待确认。`make bench` 的
+  mem_report 场景(RSS 采样 + 框架内存记账)已可作为对账起点。
+- **JS 服务常驻内存偏重**:对比压测显示 500 个常驻 snjs 服务的节点 RSS 峰值
+  约 1GB,同规模 snlua 节点约 360MB(QuickJS runtime 基线约 1.4MB/服务,
+  见 bench.md「解读」第 7 条);后续可探索 runtime 池化或精简运行时库加载。
 
 ## 功能增强(按优先级)
 
@@ -65,6 +69,33 @@
    首参为含 % 的字符串才启用,未知/缺参占位符原样保留,多余参数追加尾部;
    方法名保持标准 console API 面)。验收场景已接入套件(用例 js_console,
    套件增至 11 场景)。
+7. **cluster 发送方向 TCP_NODELAY 已对齐官方**(2026-09,对比压测驱动):
+   压测发现 skyclusterd 出站连接未设 TCP_NODELAY,而原版 clustersender.lua
+   `nodelay = true`;已在 SKYNET_SOCKET_TYPE_CONNECT 处补上(仅出站/发送侧,
+   接收方向与原版 clusteragent 一致保持默认)。注意两侧**响应方向均无
+   nodelay**,串行小包 cluster.call RTT(约 2.9-4ms)被 Nagle 主导,属双侧
+   共有特性;后续可评估双侧 nodelay 并补 pipelined cluster 压测场景
+   (方法学与数据见 [bench.md](bench.md))。
+8. **对比压测套件已建立**(2026-09):`make bench`(tools/run_bench.js)三层
+   对比 SkyJS vs 原版 skynet(core:核心消息面/cluster:双向含混合互通/
+   socket:TCP echo),基线数据与解读见 [bench.md](bench.md)。
+9. **性能优化首轮已完成**(2026-09,均经同机同时段 A/B 对照确认,详见
+   bench.md「优化记录」):
+   a. **js-seri 写缓冲重构**:连续几何增长缓冲(记账分配器)+ ArrayBuffer
+      零拷贝交接,`sp_s64k` 净收益 ~4x;unpack 改平铺数组 + 单次 JS helper
+      建 Map。**边界发现:quickjs 的 Map 为链表实现,Map.set O(n) 查重使
+      大表 unpack 为 O(n²)(纯 JS 可复现),在 table→Map 契约下 sp_t1000
+      类场景无优化空间**;突破需契约变更(数组型 table 解为 Array)或
+      引擎 patch,待另行评估。
+   b. **mixed 40KB 异常已证伪**:payload 扫描(100B/8KB/20KB 单帧与
+      40KB/80KB 分帧)证明 cluster RTT 与包大小/分帧无关,全被响应方向
+      Nagle 平台主导;109 msg/s 为运行瞬态(复测 535)。无需代码修复。
+   c. **运行时库字节码化**:qjsc 构建期生成 skynet/socket/cluster.js
+      字节码(snjs 对默认路径走 JS_ReadObject+JS_EvalFunction,非默认
+      路径/版本偏离回退源码),`startup_self` 净收益 ~1.9x(对 snlua
+      达 4.76x,~70µs/个)。RSS 峰值无明显变化(主要来自 runtime 基线)。
+   遗留优化候选:JS 服务常驻内存(runtime 基线 ~1.4MB/个)、pipelined
+   cluster 场景、seri 大表场景的契约变更评估。
 
 ## 已知限制
 

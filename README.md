@@ -84,7 +84,7 @@ skynet.start(() => {
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster_jsjs.json`(无 Lua 节点依赖) |
 | cluster 重连语义 | `test/config_cluster_fail.json` | 对端宕机→call 立即失败(无后台重试)；对端上线→下一次 call 按需重连成功 |
 | **与原版互通** | `make interop`(一键自动化);手动:`cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` + `./skyjs test/config_cluster_interop.json` | SkyJS↔原版 Lua 节点双向 cluster.call/query |
-| 基准 | `test/config_bench.json` | 串行往返 ~40-66 万 msg/s,JS 堆 ~230KB |
+| 基准 | `make bench`(一键,三阶段);单场景旧版:`test/config_bench.json` | 对比原版 skynet 的完整性能基线(核心消息/cluster/socket,方法学与数据见 [docs/bench.md](docs/bench.md)) |
 
 ## 与原版 Skynet 的差异
 

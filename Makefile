@@ -56,7 +56,25 @@ build/snjs.o: service-src/snjs.c | build
 build/seri.o: service-src/js-seri.c | build
 	$(CC) $(CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
-cservice/snjs.so: build/snjs.o build/seri.o $(QJS_OBJ) | cservice
+# host compiler used to precompile the JS runtime libraries into bytecode
+# (quickjs-libc provides the std helpers qjsc references).
+# NOTE: kept below the `all` rule so plain `make` still builds everything.
+build/qjsc: 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) | build
+	$(CC) $(CFLAGS) -I3rd/quickjs -o $@ 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) -lm
+
+# embedded bytecode of js/skynet.js + js/socket.js + js/cluster.js: snjs
+# loads these instead of parsing the sources per service. Regenerated
+# whenever the sources or the quickjs submodule move; never committed.
+build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/cluster.js | build
+	./build/qjsc -s -N snjs_bc_skynet -o build/bc_skynet.c js/skynet.js
+	./build/qjsc -s -N snjs_bc_socket -o build/bc_socket.c js/socket.js
+	./build/qjsc -s -N snjs_bc_cluster -o build/bc_cluster.c js/cluster.js
+	cat build/bc_skynet.c build/bc_socket.c build/bc_cluster.c > $@
+
+build/rt_bc.o: build/rt_bc.c | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+cservice/snjs.so: build/snjs.o build/seri.o build/rt_bc.o $(QJS_OBJ) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden -o $@ $^
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped
@@ -87,8 +105,9 @@ lint:
 	node tools/lint.js js test/service tools
 
 # acceptance suite: builds everything first, then drives all scenarios
-# (see tools/run_tests.js header for the pass/fail model)
-test: all
+# (see tools/run_tests.js header for the pass/fail model); seri_tool is a
+# separate target because `all` does not build it
+test: all test/seri_tool
 	node tools/run_tests.js
 
 # one-command interop acceptance against the stock Lua skynet node:
@@ -96,4 +115,12 @@ test: all
 interop: all
 	node tools/run_interop.js
 
-.PHONY: all clean lint test interop
+# benchmark suite: skyjs vs stock skynet, three phases (core + cluster +
+# socket, methodology + baseline in docs/bench.md); override with e.g.
+# make bench PHASE=core REPEAT=5
+PHASE ?= all
+REPEAT ?= 3
+bench: all
+	node tools/run_bench.js --phase $(PHASE) --repeat $(REPEAT)
+
+.PHONY: all clean lint test interop bench

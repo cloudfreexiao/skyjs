@@ -19,6 +19,7 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 | lua-seri | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
 | cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
+| 对比压测 | `make bench`(三阶段:core/cluster/socket) | SkyJS vs 原版 skynet 全套性能基线，方法学与数据见 [bench.md](bench.md) |
 | 基准 | `test/config_bench.json` | 往返吞吐、JS 堆占用 |
 
 与原版 Lua 节点的互通验收方式见根 README「验收状态」表。
@@ -46,6 +47,9 @@ error / mem / response / error_response / pack / unpack / str / read_file / writ
 JS 侧加载顺序（env 键 `js_loader` → `js_socket` → `js_cluster` → 用户脚本）：
 `js/skynet.js` 定义 `globalThis.skynet` 与内部路由 `internal_dispatch`；`socket.js`/
 `cluster.js` 通过 `__snjs_set_socket_handler` / `__snjs_set_cluster_handlers` 挂回调。
+三个运行时库在 env 值为默认路径时走**内嵌字节码**（`make` 构建期由 qjsc 生成
+`build/rt_bc.c`，strip 源码保留行号；源码或 quickjs submodule 变更自动再生），
+非默认路径或字节码不可读时回退源码 eval；用户脚本始终走源码。
 C 层在用户脚本执行完后用 `__snjs_wrap` 包一次 `globalThis.dispatch`，wrapper 统一负责
 RESPONSE/ERROR 回包与 Promise 排空。
 

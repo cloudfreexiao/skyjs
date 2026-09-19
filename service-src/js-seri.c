@@ -53,21 +53,25 @@
 #define MAX_COOKIE 32
 #define COMBINE_TYPE(t, v) ((t) | (v) << 3)
 
-#define BLOCK_SIZE 128
+#define WB_INIT_CAP 512
 #define MAX_DEPTH 32
 
-/* ----------------------------- stream core (verbatim from lua-seri.c) --- */
+/* ----------------------------- stream core (byte format identical to lua-seri.c) --- */
 
-struct block {
-	struct block *next;
-	char buffer[BLOCK_SIZE];
-};
+/*
+ * The stream layout (type cookies, length prefixes, block content) matches
+ * lua-seri.c byte for byte; only the write backing differs: a single
+ * geometrically grown buffer from the runtime's accounting allocator (pack
+ * payloads count toward mem accounting/memlimit) instead of a 128-byte block
+ * chain of skynet_malloc blocks.
+ */
 
 struct write_block {
-	struct block *head;
-	struct block *current;
+	JSRuntime *rt;   // backing memory comes from the runtime's accounting allocator
+	uint8_t *buf;
 	int len;
-	int ptr;
+	int cap;
+	int oom;   // allocation failed: wb_push becomes a no-op, caller checks
 };
 
 struct read_block {
@@ -76,57 +80,39 @@ struct read_block {
 	int ptr;
 };
 
-inline static struct block *
-blk_alloc(void) {
-	struct block *b = skynet_malloc(sizeof(struct block));
-	b->next = NULL;
-	return b;
-}
-
 inline static void
 wb_push(struct write_block *b, const void *buf, int sz) {
-	const char *buffer = buf;
-	if (b->ptr == BLOCK_SIZE) {
-_again:
-		b->current = b->current->next = blk_alloc();
-		b->ptr = 0;
+	if (b->oom) return;
+	if (b->len + sz > b->cap) {
+		int ncap = b->cap * 2;
+		while (ncap < b->len + sz) ncap *= 2;
+		uint8_t *nbuf = js_realloc_rt(b->rt, b->buf, ncap);
+		if (nbuf == NULL) {
+			b->oom = 1;
+			return;
+		}
+		b->buf = nbuf;
+		b->cap = ncap;
 	}
-	if (b->ptr <= BLOCK_SIZE - sz) {
-		memcpy(b->current->buffer + b->ptr, buffer, sz);
-		b->ptr += sz;
-		b->len += sz;
-	} else {
-		int copy = BLOCK_SIZE - b->ptr;
-		memcpy(b->current->buffer + b->ptr, buffer, copy);
-		buffer += copy;
-		b->len += copy;
-		sz -= copy;
-		goto _again;
-	}
+	memcpy(b->buf + b->len, buf, sz);
+	b->len += sz;
 }
 
 static void
-wb_init(struct write_block *wb, struct block *b) {
-	wb->head = b;
-	assert(b->next == NULL);
+wb_init(struct write_block *wb, JSRuntime *rt) {
+	wb->rt = rt;
+	wb->cap = WB_INIT_CAP;
+	wb->buf = js_malloc_rt(wb->rt, wb->cap);
 	wb->len = 0;
-	wb->current = wb->head;
-	wb->ptr = 0;
+	wb->oom = (wb->buf == NULL);
 }
 
 static void
 wb_free(struct write_block *wb) {
-	struct block *blk = wb->head;
-	blk = blk->next;	// the first block is on the stack
-	while (blk) {
-		struct block *next = blk->next;
-		skynet_free(blk);
-		blk = next;
-	}
-	wb->head = NULL;
-	wb->current = NULL;
-	wb->ptr = 0;
+	js_free_rt(wb->rt, wb->buf);   // idempotent: buf is NULLed so callers may retry
+	wb->buf = NULL;
 	wb->len = 0;
+	wb->cap = 0;
 }
 
 static void
@@ -163,34 +149,35 @@ wb_boolean(struct write_block *wb, int boolean) {
 
 inline static void
 wb_integer(struct write_block *wb, int64_t v) {
-	int type = TYPE_NUMBER;
+	// type byte + value staged in one buffer, single push (format identical
+	// to the per-field pushes of lua-seri.c)
+	uint8_t tmp[9];
 	if (v == 0) {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_ZERO);
-		wb_push(wb, &n, 1);
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_ZERO);
+		wb_push(wb, tmp, 1);
 	} else if (v != (int32_t)v) {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_QWORD);
-		wb_push(wb, &n, 1);
-		wb_push(wb, &v, sizeof(v));
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_QWORD);
+		memcpy(tmp + 1, &v, sizeof(v));
+		wb_push(wb, tmp, 9);
 	} else if (v < 0) {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_DWORD);
-		wb_push(wb, &n, 1);
 		int32_t v32 = (int32_t)v;
-		wb_push(wb, &v32, sizeof(v32));
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_DWORD);
+		memcpy(tmp + 1, &v32, sizeof(v32));
+		wb_push(wb, tmp, 5);
 	} else if (v < 0x100) {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_BYTE);
-		wb_push(wb, &n, 1);
-		uint8_t byte = (uint8_t)v;
-		wb_push(wb, &byte, sizeof(byte));
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_BYTE);
+		tmp[1] = (uint8_t)v;
+		wb_push(wb, tmp, 2);
 	} else if (v < 0x10000) {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_WORD);
-		wb_push(wb, &n, 1);
 		uint16_t word = (uint16_t)v;
-		wb_push(wb, &word, sizeof(word));
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_WORD);
+		memcpy(tmp + 1, &word, sizeof(word));
+		wb_push(wb, tmp, 3);
 	} else {
-		uint8_t n = COMBINE_TYPE(type, TYPE_NUMBER_DWORD);
-		wb_push(wb, &n, 1);
 		uint32_t v32 = (uint32_t)v;
-		wb_push(wb, &v32, sizeof(v32));
+		tmp[0] = COMBINE_TYPE(TYPE_NUMBER, TYPE_NUMBER_DWORD);
+		memcpy(tmp + 1, &v32, sizeof(v32));
+		wb_push(wb, tmp, 5);
 	}
 }
 
@@ -295,6 +282,7 @@ pack_object(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst 
 	JSPropertyEnum *tab = NULL;
 	uint32_t nprops = 0;
 	if (JS_GetOwnPropertyNames(ctx, &tab, &nprops, v, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY)) {
+		wb_free(b);
 		return -1;
 	}
 	// hash-only table: still needs the TYPE_TABLE cookie header
@@ -329,13 +317,19 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 	}
 	if (JS_IsBigInt(v)) {
 		int64_t iv;
-		if (JS_ToInt64Ext(ctx, &iv, v)) return -1;
+		if (JS_ToInt64Ext(ctx, &iv, v)) {
+			wb_free(b);
+			return -1;
+		}
 		wb_integer(b, iv);
 		return 0;
 	}
 	if (JS_IsNumber(v)) {
 		double dv;
-		if (JS_ToFloat64(ctx, &dv, v)) return -1;
+		if (JS_ToFloat64(ctx, &dv, v)) {
+			wb_free(b);
+			return -1;
+		}
 		// exact integers (|v| <= 2^53) take the integer path, like Lua 5.5
 		const double LIMIT = 9007199254740992.0;
 		if (dv >= -LIMIT && dv <= LIMIT && dv == (double)(int64_t)dv) {
@@ -352,7 +346,10 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 	if (JS_IsString(v)) {
 		size_t sz = 0;
 		const char *s = JS_ToCStringLen(ctx, &sz, v);
-		if (s == NULL) return -1;
+		if (s == NULL) {
+			wb_free(b);
+			return -1;
+		}
 		if (sz > 0x7fffffff) {
 			JS_FreeCString(ctx, s);
 			seri_error(ctx, b, "string too long", __LINE__);
@@ -383,7 +380,10 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 			JSValue elem = JS_GetPropertyUint32(ctx, v, (uint32_t)i);
 			int r = pack_one(ctx, l, b, elem, depth + 1);
 			JS_FreeValue(ctx, elem);
-			if (r) return -1;
+			if (r) {
+				wb_free(b);   // idempotent: nested failures may have freed already
+				return -1;
+			}
 		}
 		wb_nil(b);	// hash terminator (empty hash part)
 		return 0;
@@ -391,7 +391,10 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 	if (JS_IsObject(v)) {
 		// Map? (C property APIs can't see Map slots; use the JS helper)
 		JSValue entries = JS_Call(ctx, l->map_entries_fn, JS_UNDEFINED, 1, (JSValueConst *)&v);
-		if (JS_IsException(entries)) return -1;
+		if (JS_IsException(entries)) {
+			wb_free(b);
+			return -1;
+		}
 		if (!JS_IsNull(entries)) {
 			// hash-only table: still needs the TYPE_TABLE cookie header
 			uint8_t hdr = COMBINE_TYPE(TYPE_TABLE, 0);
@@ -411,6 +414,7 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 				JS_FreeValue(ctx, entry);
 				if (r1 || r2) {
 					JS_FreeValue(ctx, entries);
+					wb_free(b);
 					return -1;
 				}
 			}
@@ -449,20 +453,30 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		}
 		array_size = (int)n;
 	}
-	JSValue entries = JS_NewArray(ctx);
+	// Build one flat [k0,v0,k1,v1,...] array with the fast define path, then
+	// turn it into a Map with a single JS helper call. The previous version
+	// allocated a pair array per entry and called new Map(entries) at the end
+	// (~8-10 C API calls + 2 allocations per element). Same result Map with
+	// keys 1..n for the array part, per the documented unpack contract.
+	JSValue flat = JS_NewArray(ctx);
 	int64_t idx = 0;
 	for (int i = 0; i < array_size; i++) {
 		// array part becomes Map keys 1..n (1-based, like Lua)
 		JSValue e = unpack_one(ctx, l, rb);
-		if (JS_IsException(e)) return e;
-		JSValue pair = JS_NewArray(ctx);
-		JS_SetPropertyUint32(ctx, pair, 0, JS_NewInt64(ctx, i + 1));
-		JS_SetPropertyUint32(ctx, pair, 1, e);
-		JS_SetPropertyUint32(ctx, entries, (uint32_t)idx++, pair);
+		if (JS_IsException(e)) {
+			JS_FreeValue(ctx, flat);   // owns every value defined so far
+			return e;
+		}
+		JSValue k = JS_NewInt64(ctx, i + 1);
+		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
+		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, e, 0);
 	}
 	for (;;) {
 		JSValue k = unpack_one(ctx, l, rb);
-		if (JS_IsException(k)) return k;
+		if (JS_IsException(k)) {
+			JS_FreeValue(ctx, flat);
+			return k;
+		}
 		if (JS_IsNull(k)) {
 			JS_FreeValue(ctx, k);
 			break;
@@ -470,15 +484,14 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		JSValue v = unpack_one(ctx, l, rb);
 		if (JS_IsException(v)) {
 			JS_FreeValue(ctx, k);
+			JS_FreeValue(ctx, flat);
 			return v;
 		}
-		JSValue entry = JS_NewArray(ctx);
-		JS_SetPropertyUint32(ctx, entry, 0, k);
-		JS_SetPropertyUint32(ctx, entry, 1, v);
-		JS_SetPropertyUint32(ctx, entries, (uint32_t)idx++, entry);
+		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
+		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, v, 0);
 	}
-	JSValue map = JS_Call(ctx, l->new_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&entries);
-	JS_FreeValue(ctx, entries);
+	JSValue map = JS_Call(ctx, l->build_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&flat);
+	JS_FreeValue(ctx, flat);
 	return map;
 }
 
@@ -551,39 +564,43 @@ unpack_one(JSContext *ctx, struct snjs *l, struct read_block *rb) {
 
 /* ----------------------------- JS bridge -------------------------------- */
 
+// ArrayBuffer backed by a runtime-allocator buffer: the runtime hands the
+// data pointer back through this hook for resize (size > 0) and for the
+// final free (size == 0), per quickjs-ng's JSReallocArrayBufferDataFunc.
+static void *
+js_seri_buffer_realloc(JSRuntime *rt, void *opaque, void *ptr, size_t size) {
+	(void)opaque;
+	if (size == 0) {
+		js_free_rt(rt, ptr);
+		return NULL;
+	}
+	return js_realloc_rt(rt, ptr, size);
+}
+
 // pack(...values) -> ArrayBuffer
 JSValue
 js_seri_pack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
 	struct snjs *l = JS_GetContextOpaque(ctx);
 	(void)this_val;
-	struct block temp;
-	temp.next = NULL;
 	struct write_block wb;
-	wb_init(&wb, &temp);
+	wb_init(&wb, l->rt);
 	for (int i = 0; i < argc; i++) {
 		if (pack_one(ctx, l, &wb, argv[i], 0)) {
+			// cleanup already handled inside pack_one (wb_free is idempotent)
 			return JS_EXCEPTION;
 		}
 	}
-	int len = wb.len;
-	if (len < 0) {
+	if (wb.oom) {
 		wb_free(&wb);
-		return JS_ThrowTypeError(ctx, "seri too large");
+		return JS_ThrowOutOfMemory(ctx);
 	}
-	uint8_t *buffer = skynet_malloc(len);
-	uint8_t *ptr = buffer;
-	struct block *b = &temp;
-	int remain = len;
-	while (remain > 0) {
-		int sz = remain > BLOCK_SIZE ? BLOCK_SIZE : remain;
-		memcpy(ptr, b->buffer, sz);
-		ptr += sz;
-		remain -= sz;
-		b = b->next;
+	// zero-copy handoff: the ArrayBuffer adopts wb.buf; freeing goes through
+	// js_seri_buffer_realloc (same accounting allocator) when collected
+	JSValue ab = JS_NewArrayBuffer(ctx, wb.buf, (size_t)wb.len, 0,
+		js_seri_buffer_realloc, NULL, 0);
+	if (JS_IsException(ab)) {
+		wb_free(&wb);
 	}
-	wb_free(&wb);
-	JSValue ab = JS_NewArrayBufferCopy(ctx, buffer, (size_t)len);
-	skynet_free(buffer);
 	return ab;
 }
 
@@ -628,7 +645,8 @@ js_seri_unpack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 			if (JS_IsString(argv[0])) skynet_free(buffer);
 			return v;
 		}
-		JS_SetPropertyUint32(ctx, out, (uint32_t)idx++, v);
+		// fast define path; consumes v (owned by out afterwards)
+		JS_DefinePropertyValueUint32(ctx, out, (uint32_t)idx++, v, 0);
 	}
 	if (JS_IsString(argv[0])) skynet_free(buffer);
 	return out;
@@ -693,11 +711,11 @@ js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 	return JS_NewStringLen(ctx, (const char *)p, sz);
 }
 
-// evaluated once in JS: Map detection/iteration helpers
+// evaluated once in JS: Map detection/iteration/build helpers
 static const char *seri_helpers_js =
 	"globalThis.__snjs_seri = {\n"
 	"    entries: function (m) { return (m instanceof Map) ? Array.from(m.entries()) : null; },\n"
-	"    newmap: function (entries) { const m = new Map(); for (const e of entries) m.set(e[0], e[1]); return m; },\n"
+	"    buildmap: function (flat) { const m = new Map(); for (let i = 0; i < flat.length; i += 2) m.set(flat[i], flat[i + 1]); return m; },\n"
 	"};\n";
 
 int
@@ -711,11 +729,11 @@ js_seri_init(struct snjs *l) {
 	JSValue obj = JS_GetPropertyStr(l->jsc, g, "__snjs_seri");
 	JS_FreeValue(l->jsc, g);
 	JSValue entries_fn = JS_GetPropertyStr(l->jsc, obj, "entries");
-	JSValue new_map_fn = JS_GetPropertyStr(l->jsc, obj, "newmap");
+	JSValue build_map_fn = JS_GetPropertyStr(l->jsc, obj, "buildmap");
 	l->map_entries_fn = JS_DupValue(l->jsc, entries_fn);
-	l->new_map_fn = JS_DupValue(l->jsc, new_map_fn);
+	l->build_map_fn = JS_DupValue(l->jsc, build_map_fn);
 	JS_FreeValue(l->jsc, entries_fn);
-	JS_FreeValue(l->jsc, new_map_fn);
+	JS_FreeValue(l->jsc, build_map_fn);
 	JS_FreeValue(l->jsc, obj);
 	return 0;
 }
