@@ -1,8 +1,8 @@
 # AGENTS.md — SkyJS 开发指南
 
 面向 AI 编码代理。详细规范（验收矩阵、C/JS 边界、编码约定全文、排查入口）见
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，演进记录与已知限制见
-[docs/TODO.md](docs/TODO.md)。动手改代码前先读完本文与 DEVELOPMENT.md。
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，演进记录与问题归因见
+[docs/HISTORY.md](docs/HISTORY.md)，遗留事项见 [docs/TODO.md](docs/TODO.md)。动手改代码前先读完本文与 DEVELOPMENT.md。
 
 ## 项目概述
 

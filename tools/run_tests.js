@@ -41,6 +41,7 @@ const NEVER = [
     "KILL self",
     "SERI FAIL",
     "CLUSTER FAIL",
+    "GATE FAIL",
     "dispatch rejected",
 ];
 
@@ -63,6 +64,11 @@ const SUITE = [
         must_re: [/T: \d+ms/] },
     { name: "js_socket", config: "test/config_js_socket.json",
         must: ["SOCKTEST ALL_ECHO_OK", "SOCKTEST conn 3 closed"] },
+    // gate/redirect + C netpack frame buffer + per-connection binary: a JS
+    // client sends framed (incl. binary/coalesced/split) packets through the
+    // gate, watchdog binds an agent, agent echoes each packet's raw payload
+    { name: "gate", config: "test/config_gate.json",
+        must: ["WATCHDOG gate ready on port 18855", "GATE_OK 2 clients x 5017 bytes"] },
     { name: "js_seri", config: "test/config_js_seri.json", special: run_seri },
     // JS<->JS variant: the original config_cluster_a.json also queries a stock
     // lua node on :2530, which only exists in the manual interop scenario

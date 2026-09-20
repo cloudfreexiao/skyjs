@@ -23,6 +23,9 @@ declare const skynetcore: {
     mem(): number;
     response(session: number, source: number, msg: string | ArrayBuffer | null): void;
     error_response(session: number, source: number): void;
+    /** 转发消息并伪装 source（skynet.redirect 底层）；msg 原样透传 */
+    redirect(dest: number, source: number, type: number, session: number,
+        msg: string | ArrayBuffer | null): number;
     /** 打包为 lua-seri 兼容的 ArrayBuffer */
     pack(...vals: unknown[]): ArrayBuffer;
     /** 解包 seri 流；buf 亦接受字符串（按其 UTF-8 字节流解） */
@@ -35,9 +38,22 @@ declare const skynetcore: {
         listen(host: string, port: number, backlog?: number): number;
         connect(host: string, port: number): number;
         start(id: number): void;
-        send(id: number, data: string): number;
+        send(id: number, data: string | ArrayBuffer): number;
         close(id: number): void;
         shutdown(id: number): void;
+        /** 关闭 Nagle 算法（TCP_NODELAY） */
+        nodelay(id: number): void;
+        /** 切换本服务为 netpack 模式：DATA 走 C 帧缓冲（gateserver 使用） */
+        netpack_mode(): void;
+    };
+    /** netpack 帧缓冲（2 字节大端长度前缀），gateserver 使用 */
+    netpack: {
+        /** 取出一个已重组的包，队列空返回 null */
+        pop(): { fd: number; data: ArrayBuffer } | null;
+        /** 为 data 加上 2 字节大端长度前缀 */
+        pack(data: string | ArrayBuffer): ArrayBuffer;
+        /** 清空队列与所有未完成重组缓冲 */
+        clear(): void;
     };
 };
 
@@ -46,14 +62,20 @@ declare const skynet: {
     PTYPE_RESPONSE: number;
     PTYPE_ERROR: number;
     PTYPE_LUA: number;
+    PTYPE_CLIENT: number;
     start(start_func: () => void): void;
     /** 注册消息处理；回调返回值即应答（text 返回 string，lua 返回 pack 的 ArrayBuffer） */
     dispatch<T = unknown>(typename: string,
-        fn: (msg: T, session?: number, source?: number) => unknown): void;
+        fn: (msg: T, source?: number, session?: number) => unknown): void;
     register_protocol(p: { name: string; id: number; dispatch?: unknown }): void;
     /** call 返回 Promise；lua 协议应答为 ArrayBuffer（自行 unpack），text 解码为字符串 */
     call<T = unknown>(dest: number, typename: string,
         msg?: string | ArrayBuffer | null): Promise<T>;
+    /** fire-and-forget 发送（无 session）；lua 协议 pack 多参，text 发单个字符串 */
+    send(addr: number, typename: string, ...args: unknown[]): number;
+    /** 转发消息并伪装 source（gate 用于把原始 client 帧转给 agent） */
+    redirect(dest: number, source: number, typename: string, session: number,
+        msg?: string | ArrayBuffer | null): number;
     /** 定时器，单位厘秒（10ms），同原版 skynet.timeout */
     timeout(centiseconds: number, fn: () => void): number;
     /** 毫秒休眠（内部已换算为厘秒） */
@@ -74,13 +96,33 @@ declare const socket: {
     listen(host: string, port: number, on_accept: (id: number, address: string) => void,
         backlog?: number): number;
     connect(host: string, port: number, on_connect?: (id: number) => void): number;
-    /** 注册数据回调；不 resume socket（resume 用 resume()） */
-    start(id: number, on_data: (data: string, size: number) => void,
-        on_close?: (id: number) => void, on_error?: (id: number, msg: string) => void): void;
+    /** 注册数据回调；不 resume socket（resume 用 resume()）。opts.binary 时
+     *  on_data 收到原始 ArrayBuffer，否则解码为 UTF-8 字符串 */
+    start(id: number, on_data: (data: string | ArrayBuffer, size: number) => void,
+        on_close?: (id: number) => void, on_error?: (id: number, msg: string) => void,
+        opts?: { binary?: boolean }): void;
     resume(id: number): void;
-    write(id: number, data: string): number;
+    write(id: number, data: string | ArrayBuffer | ArrayBufferView): number;
     close(id: number): void;
     shutdown(id: number): void;
+};
+
+declare const gateserver: {
+    /** 启动 gate：切换 netpack 模式并安装 socket 事件处理 */
+    start(handler: {
+        connect(fd: number, addr: string): void;
+        message(fd: number, msg: ArrayBuffer): void;
+        disconnect?(fd: number): void;
+        error?(fd: number, msg: string): void;
+        warning?(fd: number, size: number): void;
+    }): void;
+    /** 创建并启动监听 socket，返回 listen fd */
+    open(host: string, port: number, backlog?: number, max_client?: number,
+        nodelay?: boolean): number;
+    close(): void;
+    /** 开始读取一个已接受的连接（forward/accept 之后） */
+    openclient(fd: number): void;
+    closeclient(fd: number): void;
 };
 
 declare const cluster: {

@@ -1,8 +1,9 @@
 // skyjs socket bridge (Task 4).
 // Loaded by snjs after skynet.js (env key "js_socket", default "./js/socket.js").
 // Wraps the skynet socket API (event-driven, one C socket thread) with
-// per-connection callbacks. All data crossing this bridge is UTF-8 strings;
-// binary will come later via ArrayBuffer-backed messages.
+// per-connection callbacks. Socket DATA crosses the C boundary as an
+// ArrayBuffer (binary-safe); by default on_data receives a decoded UTF-8
+// string, or the raw ArrayBuffer when a connection opts into binary mode.
 (function () {
     "use strict";
 
@@ -15,7 +16,9 @@
         if (!h) return;
         switch (m.type) {
             case DATA:
-                if (h.on_data) h.on_data(m.data, m.ud);
+                // C delivers DATA as an ArrayBuffer; decode to a string unless
+                // this connection opted into per-connection binary mode
+                if (h.on_data) h.on_data(h.binary ? m.data : skynetcore.str(m.data), m.ud);
                 break;
             case CONNECT:
                 // resume_socket() re-reports OPEN with a status text; only a
@@ -59,19 +62,27 @@
             if (id >= 0) handlers.set(id, { on_connect });
             return id;
         },
-        // register data callbacks only; does NOT resume the socket
-        start(id, on_data, on_close, on_error) {
+        // register data callbacks only; does NOT resume the socket. opts.binary
+        // delivers on_data payloads as raw ArrayBuffer (default: UTF-8 string).
+        start(id, on_data, on_close, on_error, opts) {
             const h = handlers.get(id) || {};
             h.on_data = on_data;
             h.on_close = on_close;
             h.on_error = on_error;
+            h.binary = !!(opts && opts.binary);
             handlers.set(id, h);
         },
         // required for accepted connections (PAccept -> Connected)
         resume(id) {
             sock.start(id | 0);
         },
+        // data may be a string (UTF-8), an ArrayBuffer, or a typed-array view
         write(id, data) {
+            if (data instanceof ArrayBuffer) return sock.send(id | 0, data);
+            if (ArrayBuffer.isView(data)) {
+                return sock.send(id | 0,
+                    data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+            }
             return sock.send(id | 0, String(data));
         },
         close(id) {

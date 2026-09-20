@@ -11,6 +11,8 @@
 #include "atomic.h"
 
 struct skynet_context;
+struct skynet_socket_message;
+struct np_queue;
 
 struct snjs {
 	JSRuntime *rt;
@@ -26,6 +28,10 @@ struct snjs {
 	// js-seri helpers (evaluated in js_seri_init)
 	JSValue map_entries_fn;   // (m) => Array<[k,v]> | null
 	JSValue build_map_fn;     // (flat [k0,v0,k1,v1,...]) => Map
+
+	// js-netpack: gateserver frame buffer (lazily allocated per service)
+	struct np_queue *netpack_q;   // 2-byte framed packet ring + per-fd reassembly
+	int socket_netpack;           // socket DATA is routed through js_netpack_dispatch
 };
 
 // js-seri.c exports (used by snjs.c's register_bridge and init)
@@ -35,5 +41,12 @@ JSValue js_seri_unpack(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 JSValue js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue js_seri_writefile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+
+// js-netpack.c exports (gateserver frame buffer; see register_bridge and worker_cb)
+int js_netpack_dispatch(struct snjs *l, struct skynet_socket_message *sm, size_t sz, JSValue *out);
+void js_netpack_free(struct snjs *l);
+JSValue js_netpack_pop(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+JSValue js_netpack_pack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+JSValue js_netpack_clear(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 #endif

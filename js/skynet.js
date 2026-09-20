@@ -18,6 +18,7 @@
 
     const PTYPE_TEXT = 0;
     const PTYPE_RESPONSE = 1;
+    const PTYPE_CLIENT = 3;
     const PTYPE_ERROR = 7;
     const PTYPE_LUA = 10;
     const PTYPE_SOCKET = 6;
@@ -36,6 +37,7 @@
 
     register_protocol({ name: "text", id: PTYPE_TEXT });
     register_protocol({ name: "lua", id: PTYPE_LUA });
+    register_protocol({ name: "client", id: PTYPE_CLIENT });
 
     function find_type(typename) {
         for (const k in proto) {
@@ -68,6 +70,24 @@
                 reject(new Error("skynet.call: send to " + addr + " failed"));
             }
         });
+    }
+
+    // fire-and-forget send (no session). lua payloads pack args to a seri
+    // stream (binary-safe); text sends a single string argument.
+    function skynet_send(addr, typename, ...args) {
+        const type = find_type(typename);
+        const payload = (type === PTYPE_LUA)
+            ? skynetcore.pack(...args)
+            : (args.length === 0 || args[0] === undefined || args[0] === null ? "" : args[0]);
+        return skynetcore.send(addr, type, payload, 0);
+    }
+
+    // redirect: forward a message with a spoofed source (skynet.redirect).
+    // msg crosses untouched (string or ArrayBuffer, e.g. a raw client frame).
+    function skynet_redirect(dest, source, typename, session, msg) {
+        const type = find_type(typename);
+        return skynetcore.redirect(dest, source, type, session | 0,
+            (msg === undefined || msg === null) ? "" : msg);
     }
 
     function skynet_timeout(ti, fn) {
@@ -160,19 +180,23 @@
     // uniformly. RESPONSE/ERROR messages are fully handled by internal_dispatch and
     // never produce a reply.
     globalThis.__snjs_wrap = function (ud) {
+        // client messages arrive via skynet.redirect with session=fd and must
+        // never auto-reply; RESPONSE/ERROR are fully handled by internal_dispatch
+        const wants_reply = (session, type) =>
+            session !== 0 && type !== PTYPE_RESPONSE && type !== PTYPE_ERROR && type !== PTYPE_CLIENT;
         return function (msg, session, source, type) {
             let ret;
             try {
                 ret = ud(msg, session, source, type);
             } catch (e) {
                 skynetcore.error("dispatch error: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
-                if (session !== 0) skynetcore.error_response(session, source);
+                if (wants_reply(session, type)) skynetcore.error_response(session, source);
                 return;
             }
             if (ret && typeof ret.then === "function") {
                 return ret.then(
                     v => {
-                        if (session !== 0 && type !== PTYPE_RESPONSE && type !== PTYPE_ERROR) {
+                        if (wants_reply(session, type)) {
                             // pass through as-is: string or ArrayBuffer (lua payloads)
                             skynetcore.response(session, source, v === undefined ? "" : v);
                         }
@@ -180,13 +204,13 @@
                     },
                     e => {
                         skynetcore.error("dispatch rejected: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
-                        if (session !== 0 && type !== PTYPE_RESPONSE && type !== PTYPE_ERROR) {
+                        if (wants_reply(session, type)) {
                             skynetcore.error_response(session, source);
                         }
                     }
                 );
             }
-            if (session !== 0 && type !== PTYPE_RESPONSE && type !== PTYPE_ERROR) {
+            if (wants_reply(session, type)) {
                 skynetcore.response(session, source, ret === undefined ? "" : ret);
             }
             return ret;
@@ -310,11 +334,13 @@
     globalThis.console = console_obj;
 
     globalThis.skynet = {
-        PTYPE_TEXT, PTYPE_RESPONSE, PTYPE_ERROR, PTYPE_LUA,
+        PTYPE_TEXT, PTYPE_RESPONSE, PTYPE_ERROR, PTYPE_LUA, PTYPE_CLIENT,
         start: function (start_func) { start_func(); },
         dispatch: skynet_dispatch,
         register_protocol,
         call: skynet_call,
+        send: skynet_send,
+        redirect: skynet_redirect,
         timeout: skynet_timeout,
         sleep: skynet_sleep,
         fork: skynet_fork,

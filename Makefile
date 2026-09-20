@@ -56,25 +56,30 @@ build/snjs.o: service-src/snjs.c | build
 build/seri.o: service-src/js-seri.c | build
 	$(CC) $(CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
+build/netpack.o: service-src/js-netpack.c | build
+	$(CC) $(CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+
 # host compiler used to precompile the JS runtime libraries into bytecode
 # (quickjs-libc provides the std helpers qjsc references).
 # NOTE: kept below the `all` rule so plain `make` still builds everything.
 build/qjsc: 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) | build
 	$(CC) $(CFLAGS) -I3rd/quickjs -o $@ 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) -lm
 
-# embedded bytecode of js/skynet.js + js/socket.js + js/cluster.js: snjs
-# loads these instead of parsing the sources per service. Regenerated
-# whenever the sources or the quickjs submodule move; never committed.
-build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/cluster.js | build
+# embedded bytecode of js/skynet.js + js/socket.js + js/cluster.js +
+# js/gateserver.js: snjs loads these instead of parsing the sources per
+# service. Regenerated whenever the sources or the quickjs submodule move;
+# never committed.
+build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/cluster.js js/gateserver.js | build
 	./build/qjsc -s -N snjs_bc_skynet -o build/bc_skynet.c js/skynet.js
 	./build/qjsc -s -N snjs_bc_socket -o build/bc_socket.c js/socket.js
 	./build/qjsc -s -N snjs_bc_cluster -o build/bc_cluster.c js/cluster.js
-	cat build/bc_skynet.c build/bc_socket.c build/bc_cluster.c > $@
+	./build/qjsc -s -N snjs_bc_gateserver -o build/bc_gateserver.c js/gateserver.js
+	cat build/bc_skynet.c build/bc_socket.c build/bc_cluster.c build/bc_gateserver.c > $@
 
 build/rt_bc.o: build/rt_bc.c | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-cservice/snjs.so: build/snjs.o build/seri.o build/rt_bc.o $(QJS_OBJ) | cservice
+cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/rt_bc.o $(QJS_OBJ) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden -o $@ $^
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped

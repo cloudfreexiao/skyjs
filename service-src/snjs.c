@@ -366,6 +366,45 @@ js_error_response(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst 
 	return JS_UNDEFINED;
 }
 
+// redirect(dest, source, type, session, msg): forward a message with a
+// spoofed source (skynet.redirect). Ownership of the fresh skynet_malloc
+// buffer transfers to the kernel via PTYPE_TAG_DONTCOPY, same contract as
+// js_send. msg may be a string or an ArrayBuffer (raw client frames).
+static JSValue
+js_redirect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	struct snjs *l = getinst(ctx);
+	(void)this_val;
+	if (argc < 5) {
+		return JS_ThrowTypeError(ctx, "skynetcore.redirect(dest, source, type, session, msg)");
+	}
+	int32_t dest, type, session;
+	uint32_t source;
+	if (JS_ToInt32(ctx, &dest, argv[0])) return JS_EXCEPTION;
+	if (JS_ToUint32(ctx, &source, argv[1])) return JS_EXCEPTION;
+	if (JS_ToInt32(ctx, &type, argv[2])) return JS_EXCEPTION;
+	if (JS_ToInt32(ctx, &session, argv[3])) return JS_EXCEPTION;
+	void *buf = NULL;
+	size_t sz = 0;
+	if (JS_IsArrayBuffer(argv[4])) {
+		uint8_t *p = JS_GetArrayBuffer(ctx, &sz, argv[4]);
+		if (p == NULL) return JS_EXCEPTION;
+		if (sz > 0) {
+			buf = skynet_malloc(sz);
+			memcpy(buf, p, sz);
+		}
+	} else if (!JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4])) {
+		const char *msg = JS_ToCStringLen(ctx, &sz, argv[4]);
+		if (msg == NULL) return JS_EXCEPTION;
+		if (sz > 0) {
+			buf = skynet_malloc(sz);
+			memcpy(buf, msg, sz);
+		}
+		JS_FreeCString(ctx, msg);
+	}
+	int r = skynet_send(l->ctx, source, (uint32_t)dest, type | PTYPE_TAG_DONTCOPY, session, buf, sz);
+	return JS_NewInt32(ctx, r);
+}
+
 /* ------------------------------------------------------- socket bridge */
 
 static JSValue
@@ -405,21 +444,54 @@ js_sock_start(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *arg
 	return JS_UNDEFINED;
 }
 
-// send(id, data): buffer ownership transfers to the socket layer
+// send(id, data): buffer ownership transfers to the socket layer. data may be
+// a string (UTF-8) or an ArrayBuffer (binary-safe, per-connection binary).
 static JSValue
 js_sock_send(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
 	struct snjs *l = getinst(ctx);
 	(void)this_val;
+	if (argc < 2) {
+		return JS_ThrowTypeError(ctx, "skynetcore.socket.send(id, data)");
+	}
 	int32_t id;
 	if (JS_ToInt32(ctx, &id, argv[0])) return JS_EXCEPTION;
 	size_t sz = 0;
-	const char *data = JS_ToCStringLen(ctx, &sz, argv[1]);
-	if (data == NULL) return JS_EXCEPTION;
-	void *buf = skynet_malloc(sz);
-	memcpy(buf, data, sz);
-	JS_FreeCString(ctx, data);
+	void *buf = NULL;
+	if (JS_IsArrayBuffer(argv[1])) {
+		uint8_t *p = JS_GetArrayBuffer(ctx, &sz, argv[1]);
+		if (p == NULL) return JS_EXCEPTION;
+		buf = skynet_malloc(sz);
+		memcpy(buf, p, sz);
+	} else {
+		const char *data = JS_ToCStringLen(ctx, &sz, argv[1]);
+		if (data == NULL) return JS_EXCEPTION;
+		buf = skynet_malloc(sz);
+		memcpy(buf, data, sz);
+		JS_FreeCString(ctx, data);
+	}
 	int r = skynet_socket_send(l->ctx, id, buf, (int)sz);
 	return JS_NewInt32(ctx, r);
+}
+
+static JSValue
+js_sock_nodelay(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	struct snjs *l = getinst(ctx);
+	(void)this_val; (void)argc;
+	int32_t id;
+	if (JS_ToInt32(ctx, &id, argv[0])) return JS_EXCEPTION;
+	skynet_socket_nodelay(l->ctx, id);
+	return JS_UNDEFINED;
+}
+
+// enable netpack mode: PTYPE_SOCKET DATA is routed through the C frame buffer
+// (js_netpack_dispatch) instead of being delivered as a raw payload. Used by
+// gateserver.js; one flag per service (a service is either a gate or not).
+static JSValue
+js_sock_netpack_mode(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	struct snjs *l = getinst(ctx);
+	(void)this_val; (void)argc; (void)argv;
+	l->socket_netpack = 1;
+	return JS_UNDEFINED;
 }
 
 static JSValue
@@ -454,6 +526,7 @@ register_bridge(struct snjs *l) {
 	JS_SetPropertyStr(l->jsc, obj, "mem", JS_NewCFunction(l->jsc, js_mem, "mem", 0));
 	JS_SetPropertyStr(l->jsc, obj, "response", JS_NewCFunction(l->jsc, js_response, "response", 3));
 	JS_SetPropertyStr(l->jsc, obj, "error_response", JS_NewCFunction(l->jsc, js_error_response, "error_response", 2));
+	JS_SetPropertyStr(l->jsc, obj, "redirect", JS_NewCFunction(l->jsc, js_redirect, "redirect", 5));
 	JSValue sock = JS_NewObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, sock, "listen", JS_NewCFunction(l->jsc, js_sock_listen, "listen", 3));
 	JS_SetPropertyStr(l->jsc, sock, "connect", JS_NewCFunction(l->jsc, js_sock_connect, "connect", 2));
@@ -461,7 +534,15 @@ register_bridge(struct snjs *l) {
 	JS_SetPropertyStr(l->jsc, sock, "send", JS_NewCFunction(l->jsc, js_sock_send, "send", 2));
 	JS_SetPropertyStr(l->jsc, sock, "close", JS_NewCFunction(l->jsc, js_sock_close, "close", 1));
 	JS_SetPropertyStr(l->jsc, sock, "shutdown", JS_NewCFunction(l->jsc, js_sock_shutdown, "shutdown", 1));
+	JS_SetPropertyStr(l->jsc, sock, "nodelay", JS_NewCFunction(l->jsc, js_sock_nodelay, "nodelay", 1));
+	JS_SetPropertyStr(l->jsc, sock, "netpack_mode", JS_NewCFunction(l->jsc, js_sock_netpack_mode, "netpack_mode", 0));
 	JS_SetPropertyStr(l->jsc, obj, "socket", sock);
+	// js-netpack extensions (gateserver frame buffer, see js-netpack.c)
+	JSValue netpack = JS_NewObject(l->jsc);
+	JS_SetPropertyStr(l->jsc, netpack, "pop", JS_NewCFunction(l->jsc, js_netpack_pop, "pop", 0));
+	JS_SetPropertyStr(l->jsc, netpack, "pack", JS_NewCFunction(l->jsc, js_netpack_pack, "pack", 1));
+	JS_SetPropertyStr(l->jsc, netpack, "clear", JS_NewCFunction(l->jsc, js_netpack_clear, "clear", 0));
+	JS_SetPropertyStr(l->jsc, obj, "netpack", netpack);
 	// js-seri extensions (pack/unpack/io, see js-seri.c)
 	JS_SetPropertyStr(l->jsc, obj, "pack", JS_NewCFunction(l->jsc, js_seri_pack, "pack", 0));
 	JS_SetPropertyStr(l->jsc, obj, "unpack", JS_NewCFunction(l->jsc, js_seri_unpack, "unpack", 1));
@@ -491,22 +572,35 @@ worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t 
 		// lua socket.lua's driver.push. Control events (padding=true) carry text
 		// at sm+1 inside the sm allocation and have buffer == NULL.
 		struct skynet_socket_message *sm = (struct skynet_socket_message *)msg;
-		payload = JS_NewObject(l->jsc);
-		JS_SetPropertyStr(l->jsc, payload, "type", JS_NewInt32(l->jsc, sm->type));
-		JS_SetPropertyStr(l->jsc, payload, "id", JS_NewInt32(l->jsc, sm->id));
-		JS_SetPropertyStr(l->jsc, payload, "ud", JS_NewInt32(l->jsc, sm->ud));
-		if (sm->buffer != NULL) {
-			JS_SetPropertyStr(l->jsc, payload, "data", JS_NewStringLen(l->jsc, sm->buffer, sm->ud));
-			skynet_free(sm->buffer);
-			sm->buffer = NULL;
-		} else if (sz > sizeof(*sm)) {
-			JS_SetPropertyStr(l->jsc, payload, "data", JS_NewString(l->jsc, (const char *)(sm + 1)));
+		if (l->socket_netpack) {
+			// gateserver mode: DATA is reassembled by the C frame buffer,
+			// which takes over sm->buffer (freed in js_netpack_dispatch).
+			JSValue ev;
+			if (!js_netpack_dispatch(l, sm, sz, &ev)) {
+				return 0;   // uncomplete packet buffered, nothing to deliver
+			}
+			payload = ev;
 		} else {
-			JS_SetPropertyStr(l->jsc, payload, "data", JS_NULL);
+			payload = JS_NewObject(l->jsc);
+			JS_SetPropertyStr(l->jsc, payload, "type", JS_NewInt32(l->jsc, sm->type));
+			JS_SetPropertyStr(l->jsc, payload, "id", JS_NewInt32(l->jsc, sm->id));
+			JS_SetPropertyStr(l->jsc, payload, "ud", JS_NewInt32(l->jsc, sm->ud));
+			if (sm->buffer != NULL) {
+				// DATA/UDP payload is binary-safe: deliver as ArrayBuffer, so
+				// socket.js can decode text only for text-mode connections
+				// (per-connection binary). Ownership contract unchanged.
+				JS_SetPropertyStr(l->jsc, payload, "data", JS_NewArrayBufferCopy(l->jsc, (const uint8_t *)sm->buffer, sm->ud));
+				skynet_free(sm->buffer);
+				sm->buffer = NULL;
+			} else if (sz > sizeof(*sm)) {
+				JS_SetPropertyStr(l->jsc, payload, "data", JS_NewString(l->jsc, (const char *)(sm + 1)));
+			} else {
+				JS_SetPropertyStr(l->jsc, payload, "data", JS_NULL);
+			}
 		}
-	} else if (type == PTYPE_RESERVED_LUA || type == PTYPE_RESPONSE) {
-		// binary-safe: lua payloads and responses to lua calls cross as
-		// ArrayBuffer; skynet.js decodes text responses per call protocol
+	} else if (type == PTYPE_RESERVED_LUA || type == PTYPE_RESPONSE || type == PTYPE_CLIENT) {
+		// binary-safe: lua payloads, responses, and client (gate) frames cross
+		// as ArrayBuffer; skynet.js decodes text responses per call protocol
 		payload = JS_NewArrayBufferCopy(l->jsc, msg ? (const uint8_t *)msg : (const uint8_t *)"", sz);
 	} else {
 		payload = JS_NewStringLen(l->jsc, msg ? (const char *)msg : "", sz);
@@ -578,11 +672,12 @@ optstring(struct skynet_context *ctx, const char *key, const char * str) {
 
 /*
  * Embedded bytecode of the default runtime libraries (generated by the
- * Makefile via qjsc from js/skynet.js, js/socket.js, js/cluster.js; see
- * build/rt_bc.c). Loading bytecode skips the per-service parse cost and the
- * retained source text. A non-default js_loader/js_socket/js_cluster env
- * value falls back to source eval, as does an unreadable bytecode blob
- * (submodule/version skew) -- behaviour stays identical either way.
+ * Makefile via qjsc from js/skynet.js, js/socket.js, js/cluster.js and
+ * js/gateserver.js; see build/rt_bc.c). Loading bytecode skips the
+ * per-service parse cost and the retained source text. A non-default
+ * js_loader/js_socket/js_cluster/js_gateserver env value falls back to source
+ * eval, as does an unreadable bytecode blob (submodule/version skew) --
+ * behaviour stays identical either way.
  */
 extern const uint8_t snjs_bc_skynet[];
 extern const uint32_t snjs_bc_skynet_size;
@@ -590,6 +685,8 @@ extern const uint8_t snjs_bc_socket[];
 extern const uint32_t snjs_bc_socket_size;
 extern const uint8_t snjs_bc_cluster[];
 extern const uint32_t snjs_bc_cluster_size;
+extern const uint8_t snjs_bc_gateserver[];
+extern const uint32_t snjs_bc_gateserver_size;
 
 static const uint8_t *
 embedded_runtime_bc(const char *path, size_t *len) {
@@ -604,6 +701,10 @@ embedded_runtime_bc(const char *path, size_t *len) {
 	if (strcmp(path, "./js/cluster.js") == 0) {
 		*len = snjs_bc_cluster_size;
 		return snjs_bc_cluster;
+	}
+	if (strcmp(path, "./js/gateserver.js") == 0) {
+		*len = snjs_bc_gateserver_size;
+		return snjs_bc_gateserver;
 	}
 	return NULL;
 }
@@ -677,9 +778,10 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	if (lr < 0) return 1;
 	if (lr > 0) l->js_managed = 1;
 
-	// optional secondary loaders: socket bridge, cluster bridge
+	// optional secondary loaders: socket bridge, cluster bridge, gateserver
 	if (eval_runtime(l, optstring(ctx, "js_socket", "./js/socket.js"), "snjs socket loader error") < 0) return 1;
 	if (eval_runtime(l, optstring(ctx, "js_cluster", "./js/cluster.js"), "snjs cluster loader error") < 0) return 1;
+	if (eval_runtime(l, optstring(ctx, "js_gateserver", "./js/gateserver.js"), "snjs gateserver loader error") < 0) return 1;
 
 	// args: "<script path> [param]"
 	char tmp[512];
@@ -792,6 +894,7 @@ snjs_create(void) {
 
 MODAPI void
 snjs_release(struct snjs *l) {
+	js_netpack_free(l);
 	JS_FreeValue(l->jsc, l->dispatch);
 	JS_FreeValue(l->jsc, l->map_entries_fn);
 	JS_FreeValue(l->jsc, l->build_map_fn);

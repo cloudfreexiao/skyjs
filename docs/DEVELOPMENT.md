@@ -1,7 +1,8 @@
 # SkyJS 开发手册
 
 AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排查入口。
-演进记录与遗留事项见 [TODO.md](TODO.md)，验收矩阵速览见根 [README.md](../README.md)。
+遗留事项与已知限制见 [TODO.md](TODO.md)，历史演进与问题归因档案见
+[HISTORY.md](HISTORY.md)，验收矩阵速览见根 [README.md](../README.md)，性能基线见 [bench.md](bench.md)。
 
 ## 验收测试
 
@@ -16,7 +17,8 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 | TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→Map 往返断言(TS_ECHO_OK) |
 | console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
-| socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通 |
+| socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
+| gate/redirect | `test/config_gate.json` | C netpack 分帧/重组、watchdog-agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
 | lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
 | cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
@@ -29,9 +31,9 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 
 ```text
 platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub)
-service-src/    # snjs.c(QuickJS 服务加载器) / js-seri.c(序列化) / skyclusterd.c(cluster)
+service-src/    # snjs.c(QuickJS 服务加载器) / js-seri.c(序列化) / js-netpack.c(gate 帧缓冲) / skyclusterd.c(cluster)
 cservice/       # 编译产物 logger.so / snjs.so / skyclusterd.so（gitignore）
-js/             # JS 运行时库：skynet.js(异步核心+console) → socket.js → cluster.js（按序加载）；
+js/             # JS 运行时库：skynet.js → socket.js → cluster.js → gateserver.js（按序加载）；
                 # skyjs.d.ts 为全局注入面的 TS 类型声明（与库同源维护）
 test/           # 验收配置(*.json) + service/ JS 服务脚本 + service-src/ C 测试服务
 examples/       # TypeScript 接入示例（ts_echo：构建脚本 + 运行配置）
@@ -43,14 +45,15 @@ build/          # 中间产物（gitignore）
 
 ## C/JS 边界（关键 API 面）
 
-`snjs.c` 向 JS 注入全局 `skynetcore` 对象：`send / command / int_command / gen_id / now /
+`snjs.c` 向 JS 注入全局 `skynetcore` 对象：`send / redirect / command / int_command / gen_id / now /
 error / mem / response / error_response / pack / unpack / str / read_file / write_file`，
-以及 `skynetcore.socket`（`listen/connect/start/send/close/shutdown`）。
+以及 `skynetcore.socket`（`listen/connect/start/send/close/shutdown/nodelay/netpack_mode`）与
+`skynetcore.netpack`（`pop/pack/clear`）。
 
-JS 侧加载顺序（env 键 `js_loader` → `js_socket` → `js_cluster` → 用户脚本）：
-`js/skynet.js` 定义 `globalThis.skynet` 与内部路由 `internal_dispatch`；`socket.js`/
-`cluster.js` 通过 `__snjs_set_socket_handler` / `__snjs_set_cluster_handlers` 挂回调。
-三个运行时库在 env 值为默认路径时走**内嵌字节码**（`make` 构建期由 qjsc 生成
+JS 侧加载顺序（env 键 `js_loader` → `js_socket` → `js_cluster` → `js_gateserver` → 用户脚本）：
+`js/skynet.js` 定义 `globalThis.skynet` 与内部路由；`socket.js`/`cluster.js`/`gateserver.js`
+通过 `__snjs_set_socket_handler` / `__snjs_set_cluster_handlers` 挂回调。
+四个运行时库在 env 值为默认路径时走**内嵌字节码**（`make` 构建期由 qjsc 生成
 `build/rt_bc.c`，strip 源码保留行号；源码或 quickjs submodule 变更自动再生），
 非默认路径或字节码不可读时回退源码 eval；用户脚本始终走源码。
 C 层在用户脚本执行完后用 `__snjs_wrap` 包一次 `globalThis.dispatch`，wrapper 统一负责
@@ -83,7 +86,7 @@ RESPONSE/ERROR 回包与 Promise 排空。
 
 JS 服务跨层收发消息的类型契约。实现锚点：snjs.c `worker_cb`（接收方向）、
 `js_send`/`js_response`（发送方向），js/skynet.js `skynet_call`/`__snjs_wrap`。
-协议常量同 skynet：PTYPE_TEXT=0、PTYPE_RESPONSE=1、PTYPE_SOCKET=6、
+协议常量同 skynet：PTYPE_TEXT=0、PTYPE_RESPONSE=1、PTYPE_CLIENT=3、PTYPE_SOCKET=6、
 PTYPE_ERROR=7、PTYPE_LUA=10。修改 C/JS 边界时不得破坏本节语义。
 
 ### 跨层类型规则
@@ -92,9 +95,9 @@ PTYPE_ERROR=7、PTYPE_LUA=10。修改 C/JS 边界时不得破坏本节语义。
 
 | 协议类型 | JS 侧类型 | 说明 |
 |---|---|---|
-| PTYPE_LUA、PTYPE_RESPONSE | `ArrayBuffer` | 原始字节拷贝，C 层不解释内容（binary-safe） |
+| PTYPE_LUA、PTYPE_RESPONSE、PTYPE_CLIENT | `ArrayBuffer` | 原始字节拷贝，C 层不解释内容（binary-safe）；CLIENT 由 gate redirect 给 agent |
 | PTYPE_TEXT 及其余全部类型 | UTF-8 字符串 | `JS_NewStringLen` 解码 |
-| PTYPE_SOCKET | 预解析对象 `{type, id, ud, data}` | socket.js 消费，不属本约定 |
+| PTYPE_SOCKET | 预解析对象 `{type, id, ud, data}`，DATA 的 data 为 `ArrayBuffer` | socket.js 按连接选择 UTF-8 解码或原样交付；netpack 模式改为 `{np,event,...}` |
 
 PTYPE_RESPONSE/PTYPE_ERROR 由 skynet.js 运行时路由（pending_calls / 定时器 /
 cluster 桥），不会进入用户注册的 dispatch。
@@ -150,6 +153,24 @@ seri → JS（unpack）类型映射：
 - table 往返不对称：seri table 在 JS 侧一律解为 `Map`（含数组部分）；需要 JS
   数组时自行按键 1..n 还原，不要假设 JS Array ↔ Lua 数组直通。
 - 嵌套深度超过 32 层 pack 报 "pack too deep"。
+
+## Gate / netpack / redirect
+
+`js/gateserver.js` 对齐原版 `snax/gateserver.lua` 的核心连接状态机，使用
+`service-src/js-netpack.c` 处理 2 字节大端长度帧。netpack 队列为 per-service 单例：
+DATA 到达时 C 层直接接管 `sm->buffer`，单包/分片按 fd 重组，多包进入 ring queue；
+`netpack.pop()` 把完整包复制为 ArrayBuffer 后释放 C 缓冲，`netpack.clear()` 与
+`snjs_release` 释放所有 queued/uncomplete 缓冲。gate 服务退出前无需 JS 手动析构，
+但业务主动重置队列时应调用 clear。
+
+`socket.start(..., {binary:true})` 使指定连接的 `on_data` 接收 ArrayBuffer；默认仍通过
+`skynetcore.str` 解码为字符串，保持既有 API。socket 写入接受 string、ArrayBuffer 与
+TypedArray view。
+
+`skynet.redirect(dest, source, typename, session, msg)` 可伪装 source，C 层为新分配缓冲
+加 `PTYPE_TAG_DONTCOPY` 后移交内核。gate 将完整包以 PTYPE_CLIENT 转给 agent，session
+携带 fd；CLIENT dispatch 禁止 `__snjs_wrap` 自动回包，agent 直接向 fd 写响应。验收场景
+`test/config_gate.json` 覆盖 watchdog→agent 绑定、二进制载荷、粘包与拆包。
 
 ## 编码约定
 
@@ -207,14 +228,14 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
   检查范围含自身所在 tools/）静态检查语法/禁 var/snake_case 命名/缩进/旧连写名
   黑名单。
 - 注释与文档用中文或英文均可，与所在文件现状保持一致；README.md 的架构表与验收
-  矩阵、docs/TODO.md 的演进记录在行为变更后需同步更新。
+  矩阵、docs/HISTORY.md 的演进记录在行为变更后需同步更新。
 
 ## 功能边界（未实现清单）
 
 当前无对应物的功能（未实现 ≠ 永久排除，取舍待推敲；如需引入，先与用户确认设计，
 勿擅自顺手实现）：harbor 的 master-slave 多节点模式、snlua/launcher/debug_console、
 inject 热更新、sharetable、snax、datacenter；cluster 侧未实现 clusterproxy、
-cluster.snax、与 gate 复用。
+cluster.snax，也未与 gateserver 复用监听。
 
 ## 排查问题的入口
 
