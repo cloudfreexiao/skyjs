@@ -19,6 +19,8 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 │   └── skyclusterd.c       # cluster 重写(线协议兼容原版 lua-cluster.c)
 ├── cservice/               # 编译产物(logger.so/snjs.so/skyclusterd.so)
 ├── js/                     # JS 库:skynet.js(异步核心)/socket.js/cluster.js
+│                           # skyjs.d.ts = 全局注入面的 TS 类型声明(与库同源)
+├── examples/               # TypeScript 接入示例(ts_echo:esbuild 转译 + 运行配置)
 ├── service/                # JS 服务脚本(bootstrap 等)
 ├── test/                   # 验收脚本与配置;seri_tool.c 为 lua-seri 对拍工具
 ├── docs/                   # 项目文档(遗留事项与后续计划等)
@@ -47,6 +49,9 @@ make test                      # 自动化验收套件：11 场景日志断言 +
                                # 默认跑 2 轮抓偶发问题(node tools/run_tests.js，--repeat/--filter 可调)
 make interop                   # 一键互通验收：构建原版 skynet submodule、双节点启动、
                                # 双向 cluster.call/query 断言(node tools/run_interop.js)
+make longrun                   # 30 分钟长跑稳定性 + memstat/RSS 对账(DURATION=N 可调)
+examples/ts_echo/build.sh      # TypeScript 示例转译(esbuild 仅构建期工具，运行时零依赖)
+./skyjs examples/ts_echo/config.json   # 运行 TS 示例(预期输出 TS_ECHO_OK)
 ```
 
 平台:macOS/arm64 已验证;Linux 使用同 Makefile 的 else 分支(`-lrt --shared`)。
@@ -80,9 +85,10 @@ skynet.start(() => {
 | console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
 | socket 桥 | `test/config_js_socket.json` | JS TCP echo server + 客户端 + nc 外部互通 |
-| lua-seri 对拍 | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
+| lua-seri 对拍 | `test/seri_tool gen build/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster_jsjs.json`(无 Lua 节点依赖) |
 | cluster 重连语义 | `test/config_cluster_fail.json` | 对端宕机→call 立即失败(无后台重试)；对端上线→下一次 call 按需重连成功 |
+| TypeScript 示例 | `examples/ts_echo/build.sh` + `./skyjs examples/ts_echo/config.json` | TS 服务转译加载、text/lua 协议 RTT、table→Map 往返(TS_ECHO_OK) |
 | **与原版互通** | `make interop`(一键自动化);手动:`cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` + `./skyjs test/config_cluster_interop.json` | SkyJS↔原版 Lua 节点双向 cluster.call/query |
 | 基准 | `make bench`(一键,三阶段);单场景旧版:`test/config_bench.json` | 对比原版 skynet 的完整性能基线(核心消息/cluster/socket,方法学与数据见 [docs/bench.md](docs/bench.md)) |
 

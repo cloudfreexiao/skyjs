@@ -16,6 +16,8 @@ const P40K = "x".repeat(40000);
 const CASES = [
     { name: "cl_100", payload: P100, n: 5000, warm: 200 },
     { name: "cl_40k", payload: P40K, n: 1000, warm: 50 },
+    // pipelined: conc concurrent callers, mirrored with bench_cluster_a.js
+    { name: "cl_pipe", payload: P100, n: 5000, warm: 200, conc: 8 },
 ];
 
 function mark(name) {
@@ -32,12 +34,27 @@ function report(name, n, t0) {
     skynetcore.error("BENCH case=" + name + " n=" + n + " mps=" + mps + " ms=" + dt);
 }
 
+async function run_case(peer, c) {
+    if (!c.conc) {
+        for (let i = 0; i < c.n; i++) await cluster.call(peer, "@bench", c.payload);
+        return;
+    }
+    const per = Math.floor(c.n / c.conc);
+    const jobs = [];
+    for (let w = 0; w < c.conc; w++) {
+        jobs.push((async () => {
+            for (let i = 0; i < per; i++) await cluster.call(peer, "@bench", c.payload);
+        })());
+    }
+    await Promise.all(jobs);
+}
+
 async function run_direction(peer) {
     for (const c of CASES) {
         for (let i = 0; i < c.warm; i++) await cluster.call(peer, "@bench", c.payload);
         mark(c.name);
         const t0 = Date.now();
-        for (let i = 0; i < c.n; i++) await cluster.call(peer, "@bench", c.payload);
+        await run_case(peer, c);
         unmark(c.name);
         report(c.name, c.n, t0);
     }

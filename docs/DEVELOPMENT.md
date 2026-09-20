@@ -13,10 +13,11 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 |---|---|---|
 | 纯 C 内核 | `test/config.json` | logger + C echo bootstrap |
 | JS echo/打断/OOM | `test/config_js_echo.json`、`config_js_deadloop.json`、`config_js_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
+| TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→Map 往返断言(TS_ECHO_OK) |
 | console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
 | socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通 |
-| lua-seri | `test/seri_tool gen /tmp/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
+| lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
 | cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
 | 对比压测 | `make bench`(三阶段:core/cluster/socket) | SkyJS vs 原版 skynet 全套性能基线，方法学与数据见 [bench.md](bench.md) |
@@ -30,8 +31,10 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub)
 service-src/    # snjs.c(QuickJS 服务加载器) / js-seri.c(序列化) / skyclusterd.c(cluster)
 cservice/       # 编译产物 logger.so / snjs.so / skyclusterd.so（gitignore）
-js/             # JS 运行时库：skynet.js(异步核心+console) → socket.js → cluster.js（按序加载）
+js/             # JS 运行时库：skynet.js(异步核心+console) → socket.js → cluster.js（按序加载）；
+                # skyjs.d.ts 为全局注入面的 TS 类型声明（与库同源维护）
 test/           # 验收配置(*.json) + service/ JS 服务脚本 + service-src/ C 测试服务
+examples/       # TypeScript 接入示例（ts_echo：构建脚本 + 运行配置）
 tools/          # 开发工具：lint.js（零依赖 node 脚本）
 docs/           # 项目文档（本目录）
 3rd/            # submodule，只读，永不修改
@@ -182,7 +185,13 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
 构建与配置：
 
 - C 构建由 Makefile 负责（npm 管不到 C 编译链接）；package.json 管 JS 开发工具链
-  （lint、未来 TS 转译），运行时依旧零 npm 依赖，`node_modules/` 不进运行时。
+  （lint、TS 转译），运行时依旧零 npm 依赖，`node_modules/` 不进运行时。
+- **TypeScript 接入**：运行时全局注入面的类型声明在 [js/skyjs.d.ts](../js/skyjs.d.ts)
+  （与三个运行时库同源维护，**改注入面必须同步更新**）；TS 服务写好后用
+  `examples/ts_echo/build.sh` 同款 esbuild 参数转译（`--bundle --format=iife
+  --platform=neutral --target=es2022`，esbuild 仅构建期工具，npx 按需拉取），
+  产物交 snjs 以源码模式加载（用户脚本始终走源码 eval，无模块包装）。完整
+  流程见 `examples/ts_echo/`（tsc --noEmit 可选强检查）。
 - 配置文件为**扁平 JSON**（`platform/main.c` 内置约百行解析器，不支持 `$VAR`/
   `include`）；新配置键直接写 env，skynet 相关键（thread/cpath/harbor/bootstrap/
   daemon/logger/logservice/profile）映射 `skynet_config`，JS 专属键（如
@@ -211,5 +220,15 @@ cluster.snax、与 gate 复用。
   OOM 表现为 JS 抛错可被捕获（见 `test/service/js_oom.js`）。
 - 死循环：SIGNAL 命令打断机制，见 `test/service/js_deadloop.js` 与 snjs.c 头注释
   （注意：信号到达时若无 JS 在跑，陷阱会滞后到下一条消息）。
+- **KILL/跨服务命令参数是 `:hex` 格式**：内核 `tohandle()` 只认 `:十六进制`
+  与 `.名字`，传十进制 handle 会被拒（仅一行 `Can't convert N to handle` 日志，
+  极易淹没在噪音里导致操作静默失效）。正确写法
+  `skynetcore.command("KILL", ":" + h.toString(16))`；若「内存随服务数线性增长」
+  先 grep `Can't convert` 确认销毁是否真执行过，再查泄漏。
+- 服务参数 `snjs_param` 在用户脚本 eval 完成后才注入（snjs.c post-JS_Eval），
+  `skynet.start` 回调内（同步启动阶段）读到 undefined；需在首个 await 之后再读，
+  或用 driver kick 模式（见 `test/service/bench_main_trim.js`、`longrun_main.js`）。
+- 长跑稳定性与 memstat/RSS 对账：`make longrun`（`DURATION=N` 分钟，默认 30），
+  harness 汇总 js_mem 与 RSS 的增长量（memstat 盲区）并落盘 `build/longrun/`。
 - 其余已知限制（socket.start 重复事件、TIMEOUT 单位等）见 [TODO.md](TODO.md)
   「已知限制」一节。

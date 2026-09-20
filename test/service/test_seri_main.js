@@ -17,7 +17,7 @@ skynet.start(() => {
     skynet.dispatch("text", async (msg) => {
         if (msg !== "start") return "OK";
 
-        const ref = new Uint8Array(skynetcore.read_file("/tmp/seri_ref.bin"));
+        const ref = new Uint8Array(skynetcore.read_file("build/seri_ref.bin"));
         const vals = skynet.unpack(ref.buffer);
         let ok = true;
         ok = check(vals[0] === null, "nil") && ok;

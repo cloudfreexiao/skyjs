@@ -123,4 +123,10 @@ REPEAT ?= 3
 bench: all
 	node tools/run_bench.js --phase $(PHASE) --repeat $(REPEAT)
 
-.PHONY: all clean lint test interop bench
+# long-run soak with memstat/RSS reconciliation (tools/run_longrun.js);
+# default 30 minutes, override with e.g. make longrun DURATION=5
+DURATION ?= 30
+longrun: all
+	node tools/run_longrun.js --minutes $(DURATION)
+
+.PHONY: all clean lint test interop bench longrun

@@ -25,9 +25,19 @@
 
 - **Linux 验证未做**:目前仅在 macOS/arm64 全链验证。Makefile 已有 Linux 分支
   (`-lrt --shared`),待实测点:epoll 路径的 socket_server.c、动态库链接参数差异。
-- **长跑与统计对账**:计划中的 30 分钟长跑、memstat 与 RSS 对账尚未执行;
-  quickjs 内部缓存可能存在 memstat 盲区,误差量级待确认。`make bench` 的
-  mem_report 场景(RSS 采样 + 框架内存记账)已可作为对账起点。
+- **长跑与统计对账已落地**(2026-09):`make longrun`(tools/run_longrun.js,
+  `DURATION` 分钟,默认 30)持续混合负载(多协议 RTT + fire-and-forget +
+  定时器 + 每 tick 创建/销毁 2 个临时服务的生命周期 churn),服务侧每秒打
+  tick(JS 堆记账)+ harness 侧 1s RSS 序列,结束时对账 js_mem 与 RSS 增长量
+  (memstat 盲区,quickjs 内部缓存若存在会在盲区中显形)并落盘
+  build/longrun/*.json。**30 分钟基线结论**(M4 Pro,2026-09-20):1801 tick /
+  ~42 万 ops 吞吐零漂移(基于进程内 elapsed_ms 分段计时,首尾均 233 ops/s);
+  js_mem 全程平坦(0.3MB,增长 0);RSS 15.3MB→4.5MB(峰值 15.4MB,负增长为
+  macOS 内存压缩归还页)——含每分钟 120 个临时服务创建/销毁下无泄漏,
+  **memstat 盲区在 30 分钟尺度上不可测(≤RSS 噪声)**,旧待办「quickjs 内部缓存盲区误差量级待确认」就此结案。
+  实现注意:snjs_param 在用户脚本 eval 完成后才注入(snjs.c post-JS_Eval),
+  服务内读取需延迟到首个 await 之后;临时服务销毁用
+  `KILL :hex` 格式(十进制 handle 静默失效,详见 DEVELOPMENT.md 排查入口)。
 - **JS 服务常驻内存（2026-09-20 归因修正）**:旧基线「1.4MB/服务、RSS 峰值
   1GB vs 360MB」是 js_send 泄漏造成的误归因——泄漏修复后的正式基线
   (repeat 3 中位数)core RSS 峰值 235.3MB vs 270.3MB;真实单服务基线
@@ -60,8 +70,13 @@
    DEVELOPMENT.md「二进制消息协议约定」一节(text 协议走 UTF-8 字符串、lua 协议
    与响应走 ArrayBuffer、响应按调用方协议解码、pack/unpack 与 lua-seri 字节级
    兼容、int64 经 BigInt 往返、TYPE_USERDATA unpack 即报错)。
-4. **TypeScript 接入示例**:运行时为 QuickJS,加载 ts 转译产物(如 esbuild 打包)
-   即可,无需改 C 层;补一个示例服务与构建脚本。
+4. **TypeScript 接入已落地**(2026-09 完成):运行时全局注入面的类型声明
+   `js/skyjs.d.ts`(与三个运行时库同源维护,注入面变更需同步更新),示例服务
+   `examples/ts_echo/`(esbuild 剥离类型为 iife 纯 JS,snjs 以源码模式加载,
+   无需改 C 层);构建 `examples/ts_echo/build.sh`(npx esbuild,仅构建期工具,
+   运行时仍零 npm 依赖),验收 `./skyjs examples/ts_echo/config.json` 输出
+   TS_ECHO_OK(text RTT + lua 协议 pack/unpack + JS 对象/数组→table
+   hash/数组部分往返断言)。
 5. **互通测试已一键化**(2026-09 完成):`make interop`(等价
    `node tools/run_interop.js`,复用 run_tests 的 watch/断言工具)串联
    submodule 增量构建 → 端口清理 → skyjs 互配节点(必须先起,原版 Lua 节点
@@ -100,8 +115,9 @@
       字节码(snjs 对默认路径走 JS_ReadObject+JS_EvalFunction,非默认
       路径/版本偏离回退源码),`startup_self` 净收益 ~1.9x(对 snlua
       达 4.76x,~70µs/个)。RSS 峰值无明显变化(主要来自 runtime 基线)。
-   遗留优化候选:JS 服务常驻内存(runtime 基线见「平台与稳定性」节)、pipelined
-   cluster 场景、seri 大表场景的契约变更评估。
+   遗留优化候选:JS 服务常驻内存(runtime 基线见「平台与稳定性」节)、seri
+   大表场景的契约变更评估。pipelined cluster 压测场景已补(见 bench.md),
+   双侧 nodelay 的评估可基于 cl_pipe 数据另议。
 
 ## 已知限制
 

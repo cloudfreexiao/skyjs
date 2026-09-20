@@ -39,6 +39,7 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 | core | `timer_wake` | 50000 个 10ms 定时器同时到期 |
 | core | `mem_report` | 主服务框架内存记账 + harness 采进程 RSS 峰值 |
 | cluster | `cl_<pair>_100/40k` | `cluster.call` RTT：pair = jsjs / lualua / mixed（skyjs↔lua 互通回归）；100B 与 40KB（multipart 分帧路径），双向各 N=5000/1000 |
+| cluster | `cl_<pair>_pipe` | 同 100B payload，8 路并发 caller（Promise.all / skynet.fork fork-join）保持多在途请求，绕开串行 Nagle 平台，测纯实现开销；双向各 N=5000 |
 | socket | `sock_64/4096/65536` | TCP echo（字节原样回包）responses/s 与 MB/s |
 
 两侧脚本严格镜像：JS 侧 [test/service/bench_main.js](../test/service/bench_main.js)、
@@ -54,6 +55,7 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 本基线已包含发送路径所有权修复（js_send / cluster 请求转发补
 `PTYPE_TAG_DONTCOPY`，含于本次变更）——修复前 send 按载荷全量泄漏，
 2026-09-19 旧基线的内存数据（RSS 峰值 1025.5MB 及「1.4MB/服务」归因）已作废。
+`cl_*_pipe` 三行为同日 repeat 3 补测（同机同时段，与串行行同口径）。
 
 | case | n | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|---|
@@ -74,10 +76,13 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 | timer_wake | 50000 | 495,050 | 531,350 | 0.93 |
 | cl_jsjs_100 | 5000 | 300 | — | — |
 | cl_jsjs_40k | 1000 | 338.6 | — | — |
+| cl_jsjs_pipe | 5000 | 31,949 | — | — |
 | cl_lualua_100 | 5000 | — | 344.7 | — |
 | cl_lualua_40k | 1000 | — | 433.5 | — |
+| cl_lualua_pipe | 5000 | — | 35,440 | — |
 | cl_mixed_100 | 5000 | 312.5 | 320.2 | 0.98 |
 | cl_mixed_40k | 1000 | 389.4 | 386.3 | 1.01 |
+| cl_mixed_pipe | 5000 | 40,000 | 32,237 | 1.24 |
 | sock_64 | 100000 | 131,988 | 133,194 | 0.99 |
 | sock_4096 | 50000 | 94,205 | 98,412 | 0.96 |
 | sock_65536 | 10000 | 8,428 | 8,242 | 1.02 |
@@ -132,8 +137,11 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
    socket.write；skyclusterd accepted socket 同样），串行一问一答时响应小段
    被 Nagle 拖住（skyjs 同语言 300 vs lua 344.7，同在 Nagle 平台内）。
    40KB 大包满段绕过 Nagle，双侧同口径。发送方向已对齐
-   原版 clustersender.lua 的 `nodelay = true`；要测纯实现开销需补
-   pipelined（多在途请求）cluster 场景。
+   原版 clustersender.lua 的 `nodelay = true`。**pipelined 场景
+   （`cl_*_pipe`，8 路并发在途）已证实这一点**：多在途请求下两侧均跳到
+   3 万+ msg/s（串行的 ~100x），Nagle 平台被并发填满窗口摊薄；mixed 双向
+   对比 skyjs 侧比 lua 侧高 ~24%，是 cluster 路径目前唯一观察到的实现
+   差异。双侧 nodelay 的评估以 cl_pipe 残余差距为依据，另行讨论。
 9. **cluster RTT 与 payload 大小/分帧无关**（payload 扫描实测：100B、8KB、
    20KB 单帧与 40KB/80KB 分帧全部落在同一个 ~3-4ms 平台）——分帧实现无差异，
    一切被 Nagle 平台主导。注意 `cl_*_40k` 各轮方差极大（如 jsjs 300..949），
@@ -151,6 +159,4 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
   （见解读第 7 条）；内存归因用单用例专用节点工具链
   （test/service/bench_main_trim.js、test/bench_lua/main_trim.lua +
   tools/rss_trim*.sh）。
-- cluster 小包串行 RTT 被 Nagle 主导，实现差异被掩盖；要测纯实现开销需补
-  pipelined（多在途请求）cluster 场景。
 - 仅 macOS/arm64 实测；Linux（epoll 路径）未验证。

@@ -10,6 +10,9 @@ local P40K = string.rep("x", 40000)   -- exercises the multipart split path
 local CASES = {
     { name = "cl_100", payload = P100, n = 5000, warm = 200 },
     { name = "cl_40k", payload = P40K, n = 1000, warm = 50 },
+    -- pipelined: conc concurrent fork workers keep multiple requests in
+    -- flight per connection, bypassing the Nagle-bound serial RTT
+    { name = "cl_pipe", payload = P100, n = 5000, warm = 200, conc = 8 },
 }
 
 local function mark(name) skynet.error("BENCH_BEGIN " .. name) end
@@ -20,12 +23,37 @@ local function report(name, n, t0)   -- t0 = skynet.hpc() nanoseconds
     skynet.error(string.format("BENCH case=%s n=%d mps=%d ms=%.1f", name, n, mps, dt_ms))
 end
 
+local function run_case(peer, c)
+    if not c.conc then
+        for _ = 1, c.n do cluster.call(peer, "@bench", c.payload) end
+        return
+    end
+    -- fork-join with explicit wakeup: skynet.wait() alone would block forever
+    -- (it is a condition variable, not a fork join); see AGENTS memory.
+    local per = math.floor(c.n / c.conc)
+    local main_co = coroutine.running()
+    local left = c.conc
+    local fork_err
+    for _ = 1, c.conc do
+        skynet.fork(function()
+            local ok, err = pcall(function()
+                for _ = 1, per do cluster.call(peer, "@bench", c.payload) end
+            end)
+            left = left - 1
+            if not ok then fork_err = err end
+            if left == 0 or not ok then skynet.wakeup(main_co) end
+        end)
+    end
+    skynet.wait(main_co)
+    if fork_err then error(fork_err) end
+end
+
 local function run_direction(peer)
     for _, c in ipairs(CASES) do
         for _ = 1, c.warm do cluster.call(peer, "@bench", c.payload) end
         mark(c.name)
         local t0 = skynet.hpc()
-        for _ = 1, c.n do cluster.call(peer, "@bench", c.payload) end
+        run_case(peer, c)
         unmark(c.name)
         report(c.name, c.n, t0)
     end

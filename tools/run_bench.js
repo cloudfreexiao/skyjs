@@ -42,7 +42,7 @@ const CORE_ORDER = [
 ];
 const CLUSTER_ORDER = [];
 for (const pair of ["jsjs", "lualua", "mixed"]) {
-    for (const size of ["100", "40k"]) CLUSTER_ORDER.push("cl_" + pair + "_" + size);
+    for (const size of ["100", "40k", "pipe"]) CLUSTER_ORDER.push("cl_" + pair + "_" + size);
 }
 const SOCKET_ORDER = SOCKET_SIZES.map((s) => "sock_" + s);
 const ALL_ORDER = CORE_ORDER.concat(CLUSTER_ORDER, SOCKET_ORDER);
