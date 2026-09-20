@@ -210,9 +210,19 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
   skynet.dispatch(...))` 范式；`globalThis.dispatch` 直接覆盖是早期同步形式的存量
   写法，勿模仿。未来引入第三方 JS 库保持其原有风格，仅自有代码遵循本规范。
 
-构建与配置：
+构建与配置:
 
-- C 构建由 Makefile 负责（npm 管不到 C 编译链接）；package.json 管 JS 开发工具链
+- **三平台构建**：Makefile 根据 `uname`/`OS` 判断平台，三分支产出相同结构：
+  - macOS (arm64/x86_64)：`-dynamiclib`，`-ldl -lpthread -lm`
+  - Linux (x86_64/aarch64)：`--shared`，`-ldl -lpthread -lm -lrt`
+  - Windows (MinGW-w64)：`--shared`，`-lws2_32 -lgdi32 -lpthread -lm -static-libgcc`；
+    通过 `-I` 和 `-include` 引用 skynet 自带的 `3rd/compat-mingw/`（`compat.h`），
+    不新建额外兼容层文件。
+  - Windows 功能退化：daemon 化（空操作）、pidfile 锁定（不生效）、SIGHUP 日志重开（不生效）。
+  - `platform/main.c` 中 SIGPIPE 处理已用 `#ifndef _WIN32` 条件编译保护。
+  - CI 通过 GitHub Actions 矩阵自动构建三平台(`.github/workflows/build.yml`)；
+    Windows 测试套件暂未启用（依赖 POSIX 信号等工具链）。
+- C 构建由 Makefile 负责（npm 管不到 C 编译链接）;package.json 管 JS 开发工具链
   （lint、TS 转译），运行时依旧零 npm 依赖，`node_modules/` 不进运行时。
 - **TypeScript 接入**：运行时全局注入面的类型声明在 [js/skyjs.d.ts](../js/skyjs.d.ts)
   （与三个运行时库同源维护，**改注入面必须同步更新**）；TS 服务写好后用

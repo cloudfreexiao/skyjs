@@ -49,4 +49,12 @@ JSValue js_netpack_pop(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 JSValue js_netpack_pack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue js_netpack_clear(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
+// js-crypto.c exports (crypto namespace, see register_crypto_bridge)
+void register_crypto_bridge(JSContext *ctx, JSValue global);
+
+// js-tls.c exports (TLS namespace, only when USE_OPENSSL is defined)
+#ifdef USE_OPENSSL
+void register_tls_bridge(JSContext *ctx, JSValue global);
+#endif
+
 #endif

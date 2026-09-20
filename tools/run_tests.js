@@ -42,6 +42,9 @@ const NEVER = [
     "SERI FAIL",
     "CLUSTER FAIL",
     "GATE FAIL",
+    "CRYPT FAIL",
+    "HTTP FAIL",
+    "WS FAIL",
     "dispatch rejected",
 ];
 
@@ -76,6 +79,12 @@ const SUITE = [
     // reconnect semantics: peer down -> calls fail immediately (no hang, no
     // background retry); peer up -> the next call reconnects on demand
     { name: "cluster_fail", config: "test/config_cluster_fail.json", special: run_cluster_fail },
+    { name: "crypt", config: "test/config_crypt.json",
+        must: ["CRYPT ALL OK"] },
+    { name: "http", config: "test/config_http.json", timeout_ms: 20000,
+        must: ["HTTP ALL OK"] },
+    { name: "ws", config: "test/config_ws.json", timeout_ms: 20000,
+        must: ["WS ALL OK"] },
     { name: "bench", config: "test/config_bench.json", timeout_ms: 60000,
         must_re: [/BENCH N=20000 c_echo=\d+ msg\/s j_echo=\d+ msg\/s/] },
 ];

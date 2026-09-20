@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <signal.h>
+#endif
 #include <assert.h>
 
 #ifndef SKYNET_MAXTHREAD
@@ -58,7 +60,8 @@ optstring(const char *key,const char * opt) {
 	return str;
 }
 
-int
+#ifndef _WIN32
+static int
 sigign(void) {
 	struct sigaction sa;
 	sa.sa_handler = SIG_IGN;
@@ -67,6 +70,7 @@ sigign(void) {
 	sigaction(SIGPIPE, &sa, 0);
 	return 0;
 }
+#endif
 
 /* ---------------------------------------------------------------- flat JSON */
 
@@ -250,7 +254,9 @@ main(int argc, char *argv[]) {
 	skynet_globalinit();
 	skynet_env_init();
 
+#ifndef _WIN32
 	sigign();
+#endif
 
 	char * json = read_file(config_file);
 	if (json == NULL) {

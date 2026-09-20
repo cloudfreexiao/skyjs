@@ -1,0 +1,76 @@
+name: Build & Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ---------- macOS / Linux: native cc ----------
+  build-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS
+          - os: ubuntu-latest
+            name: Linux
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build
+        run: make
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+  # ---------- Windows: MSYS2 / MinGW-w64 ----------
+  build-windows:
+    runs-on: windows-latest
+    name: Windows
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc make
+          update: false
+
+      # Node.js installed by the runner is available inside MSYS2 via
+      # /c/hostedtoolcache paths; setup-node ensures the right version.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build
+        shell: msys2 {0}
+        run: make
+
+      - name: Lint
+        shell: msys2 {0}
+        run: make lint
+
+      # Windows: make test 暂时跳过。
+      # 测试套件 (tools/run_tests.js) 依赖 POSIX 信号、lsof 等工具链，
+      # 在 MSYS2/MinGW 环境下需要额外适配，后续再启用。

@@ -13,6 +13,99 @@
 //
 // Structure note: like socket.js/cluster.js, everything lives in an IIFE; only
 // globalThis.skynet and the __snjs_* C-layer contracts are global.
+
+// TextEncoder/TextDecoder polyfill. The QuickJS-ng runtime used by snjs does
+// not ship the WHATWG Encoding API, yet crypt.js/sockethelper.js/http.js/
+// websocket.js all rely on UTF-8 <-> string conversion. skynet.js is the first
+// runtime library loaded, so defining these here makes them available to every
+// later module. Guarded so a future native implementation wins.
+(function () {
+    "use strict";
+
+    if (typeof globalThis.TextEncoder === "undefined") {
+        globalThis.TextEncoder = class TextEncoder {
+            get encoding() { return "utf-8"; }
+            encode(str) {
+                str = str === undefined ? "" : String(str);
+                const out = [];
+                for (let i = 0; i < str.length; i++) {
+                    let cp = str.charCodeAt(i);
+                    if (cp >= 0xd800 && cp <= 0xdbff && i + 1 < str.length) {
+                        const lo = str.charCodeAt(i + 1);
+                        if (lo >= 0xdc00 && lo <= 0xdfff) {
+                            cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+                            i++;
+                        }
+                    }
+                    if (cp < 0x80) {
+                        out.push(cp);
+                    } else if (cp < 0x800) {
+                        out.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+                    } else if (cp < 0x10000) {
+                        out.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f),
+                            0x80 | (cp & 0x3f));
+                    } else {
+                        out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f),
+                            0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+                    }
+                }
+                return new Uint8Array(out);
+            }
+        };
+    }
+
+    if (typeof globalThis.TextDecoder === "undefined") {
+        globalThis.TextDecoder = class TextDecoder {
+            constructor(label) {
+                this._encoding = (label || "utf-8").toLowerCase();
+            }
+            get encoding() { return "utf-8"; }
+            decode(input) {
+                if (input === undefined) return "";
+                let bytes;
+                if (input instanceof Uint8Array) {
+                    bytes = input;
+                } else if (input instanceof ArrayBuffer) {
+                    bytes = new Uint8Array(input);
+                } else if (ArrayBuffer.isView(input)) {
+                    bytes = new Uint8Array(input.buffer, input.byteOffset,
+                        input.byteLength);
+                } else {
+                    throw new TypeError("TextDecoder.decode: expected BufferSource");
+                }
+                let out = "";
+                let i = 0;
+                const n = bytes.length;
+                while (i < n) {
+                    const b0 = bytes[i++];
+                    let cp;
+                    if (b0 < 0x80) {
+                        cp = b0;
+                    } else if ((b0 & 0xe0) === 0xc0) {
+                        cp = ((b0 & 0x1f) << 6) | (bytes[i++] & 0x3f);
+                    } else if ((b0 & 0xf0) === 0xe0) {
+                        cp = ((b0 & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) |
+                            (bytes[i++] & 0x3f);
+                    } else if ((b0 & 0xf8) === 0xf0) {
+                        cp = ((b0 & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) |
+                            ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+                    } else {
+                        cp = 0xfffd;
+                    }
+                    if (cp > 0xffff) {
+                        cp -= 0x10000;
+                        out += String.fromCharCode(0xd800 + (cp >> 10),
+                            0xdc00 + (cp & 0x3ff));
+                    } else {
+                        out += String.fromCharCode(cp);
+                    }
+                }
+                return out;
+            }
+        };
+    }
+})();
+
 (function () {
     "use strict";
 

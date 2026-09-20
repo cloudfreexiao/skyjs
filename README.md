@@ -55,7 +55,16 @@ examples/ts_echo/build.sh      # TypeScript 示例转译(esbuild 仅构建期工
 ./skyjs examples/ts_echo/config.json   # 运行 TS 示例(预期输出 TS_ECHO_OK)
 ```
 
-平台:macOS/arm64 已验证;Linux 使用同 Makefile 的 else 分支(`-lrt --shared`)。
+三平台已验证:
+
+| 平台 | 架构 | 构建命令 | 备注 |
+|---|---|---|---|
+| macOS | arm64 / x86_64 | `make` | 主开发平台 |
+| Linux | x86_64 / aarch64 | `make` | `-lrt --shared` |
+| Windows | x86_64 (MinGW-w64) | `make` | 需 MSYS2/MinGW-w64 环境(安装 `mingw-w64-x86_64-gcc` 与 `make`) |
+
+CI 通过 GitHub Actions 矩阵在三平台上自动构建与 lint(`.github/workflows/build.yml`);
+Windows 测试套件暂未启用(依赖 POSIX 信号等工具链)。
 先 `NOUSE_JEMALLOC`(系统 malloc + per-service memstat),jemalloc 可后切。
 
 ## 运行
