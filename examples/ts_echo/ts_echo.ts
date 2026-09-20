@@ -8,8 +8,8 @@
 
 /// <reference path="../../js/skyjs.d.ts" />
 
-// lua 协议 table 在 JS 侧一律解为 Map（数组部分为键 1..n），见 DEVELOPMENT.md
-// 「二进制消息协议约定」的 seri → JS 映射表。
+// lua 协议 table 在 JS 侧区分处理：纯数组部分（无 hash）解为 JS Array（0-based），
+// 含 hash 部分的表解为 Map（数组键为 1..n），见 DEVELOPMENT.md「seri → JS 映射」。
 type lua_table = Map<number | string, unknown>;
 
 interface probe_result {
@@ -49,16 +49,16 @@ async function run_probes(self_handle: number): Promise<probe_result> {
     }
 
     // 3) 结构化 table 往返：JS 对象 pack 为 table hash 部分，JS 数组 pack 为
-    //    table 数组部分（键 1..n）；unpack 回来是 Map
+    //    table 数组部分；unpack 回来的顶层对象是 Map（含 hash 键），内嵌数组部分
+    //    是 JS Array（0-based）
     const struct_ab = await skynet.call<ArrayBuffer>(self_handle, "lua",
         skynet.pack({ msg: "struct", n: 3, arr: [10, 20, 30] }));
     const struct_vals = skynet.unpack(struct_ab);
     const t = struct_vals[0] as lua_table;
     const table_n = expect_number(t, "n");
-    // JS Array 位于子位置：pack 为子 table 的数组部分（键 1..n），unpack 回子
-    // Map；顶层对象自身只产生 hash 部分，不在顶层找数字键
-    const arr_map = table_get(t, "arr") as lua_table;
-    const table_arr1 = expect_number(arr_map, 1);   // arr[0] → 子表键 1
+    // JS Array 位于子位置：pack 为子 table 的数组部分，unpack 回子 Array（0-based）
+    const arr = table_get(t, "arr") as number[];
+    const table_arr1 = arr[0] as number;   // 0-based
     if (table_n !== 3 || table_arr1 !== 10) {
         throw new Error("lua table roundtrip mismatch");
     }

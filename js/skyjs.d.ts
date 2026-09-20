@@ -10,6 +10,21 @@
 // DEVELOPMENT.md「排查问题的入口」。
 declare const snjs_param: string;
 
+/**
+ * seri unpack 返回的 array-only Lua table 类型：JS Array 附带 Map 兼容访问方法。
+ * `.get(k)` / `.has(k)` 中 k 为 Lua 1-based 索引，等价于 `arr[k - 1]`。
+ * `.size` 等价于 `.length`。
+ * 这些方法是 non-enumerable 的，不影响 JSON.stringify / for-in / pack。
+ */
+interface LuaArray<T = unknown> extends Array<T> {
+    /** Map 兼容：按 Lua 1-based 键获取元素，等价于 this[k - 1] */
+    get(k: number): T | undefined;
+    /** Map 兼容：检查 Lua 1-based 键是否存在 */
+    has(k: number): boolean;
+    /** Map 兼容：等价于 .length */
+    readonly size: number;
+}
+
 declare const skynetcore: {
     /** 发送消息；顺序与底层一致：dest, type, msg, session（0=fire-and-forget） */
     send(dest: number, type: number, msg: string | ArrayBuffer | null,

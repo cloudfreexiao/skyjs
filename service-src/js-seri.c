@@ -12,8 +12,8 @@
  *   qword        <-> BigInt (always, preserves >2^53)
  *   real         <-> number (non-integer)
  *   string       <-> string (UTF-8; arbitrary binary needs ArrayBuffer in JS)
- *   table array  <-> JS Array (1-based, byte-compatible with Lua {10,20,30})
- *   table hash   <-> JS Map (keys keep number/string/BigInt type)
+ *   table (array-only) <-> JS Array (0-based; Lua 1-based keys implicit)
+ *   table (mixed/hash)  <-> JS Map (array part keeps 1-based integer keys)
  *   userdata     <-> error (pointers never cross VMs)
  *
  * Map iteration is impossible through plain C property APIs, so the helpers
@@ -396,22 +396,20 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 			return -1;
 		}
 		if (!JS_IsNull(entries)) {
-			// hash-only table: still needs the TYPE_TABLE cookie header
+			// entries is flat [k0,v0,k1,v1,...]; iterate with stride 2
 			uint8_t hdr = COMBINE_TYPE(TYPE_TABLE, 0);
 			wb_push(b, &hdr, 1);
 			JSValue lenv = JS_GetPropertyStr(ctx, entries, "length");
 			int32_t n = 0;
 			JS_ToInt32(ctx, &n, lenv);
 			JS_FreeValue(ctx, lenv);
-			for (int32_t i = 0; i < n; i++) {
-				JSValue entry = JS_GetPropertyUint32(ctx, entries, (uint32_t)i);
-				JSValue k = JS_GetPropertyUint32(ctx, entry, 0);
-				JSValue val = JS_GetPropertyUint32(ctx, entry, 1);
+			for (int32_t i = 0; i < n; i += 2) {
+				JSValue k = JS_GetPropertyUint32(ctx, entries, (uint32_t)i);
+				JSValue val = JS_GetPropertyUint32(ctx, entries, (uint32_t)(i + 1));
 				int r1 = pack_one(ctx, l, b, k, depth + 1);
 				int r2 = pack_one(ctx, l, b, val, depth + 1);
 				JS_FreeValue(ctx, k);
 				JS_FreeValue(ctx, val);
-				JS_FreeValue(ctx, entry);
 				if (r1 || r2) {
 					JS_FreeValue(ctx, entries);
 					wb_free(b);
@@ -453,24 +451,80 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		}
 		array_size = (int)n;
 	}
-	// Build one flat [k0,v0,k1,v1,...] array with the fast define path, then
-	// turn it into a Map with a single JS helper call. The previous version
-	// allocated a pair array per entry and called new Map(entries) at the end
-	// (~8-10 C API calls + 2 allocations per element). Same result Map with
-	// keys 1..n for the array part, per the documented unpack contract.
+
+	// Phase 1: read all array-part elements into a C-side temp buffer.
+	// We need them regardless of whether the final result is Array or Map;
+	// deferring the decision avoids building a JS container twice.
+	JSValue *elems = NULL;
+	if (array_size > 0) {
+		elems = js_malloc(ctx, sizeof(JSValue) * array_size);
+		if (elems == NULL) return JS_ThrowOutOfMemory(ctx);
+		for (int i = 0; i < array_size; i++) {
+			elems[i] = unpack_one(ctx, l, rb);
+			if (JS_IsException(elems[i])) {
+				for (int j = 0; j < i; j++) JS_FreeValue(ctx, elems[j]);
+				js_free(ctx, elems);
+				return JS_EXCEPTION;
+			}
+		}
+	}
+
+	// Phase 2: probe the first hash-part key.  TYPE_NIL = no hash part.
+	JSValue first_key = unpack_one(ctx, l, rb);
+	if (JS_IsException(first_key)) {
+		if (elems) {
+			for (int i = 0; i < array_size; i++) JS_FreeValue(ctx, elems[i]);
+			js_free(ctx, elems);
+		}
+		return first_key;
+	}
+
+	if (JS_IsNull(first_key)) {
+		JS_FreeValue(ctx, first_key);
+		if (array_size > 0) {
+			// Array-only table: build a 0-based JS Array entirely in C.
+			// This is the fast path for payloads like sp_t1000 -- no JS
+			// function call, no intermediate flat array, no Map overhead.
+			JSValue arr = JS_NewArray(ctx);
+			for (int i = 0; i < array_size; i++) {
+				JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, elems[i], 0);
+			}
+			js_free(ctx, elems);
+			// Wrap with Map-compat methods (.get/.has/.size) so consumer
+			// code that was written for the old Map return type still works.
+			JSValue wrapped = JS_Call(ctx, l->lua_array_fn, JS_UNDEFINED, 1, (JSValueConst *)&arr);
+			JS_FreeValue(ctx, arr);
+			return wrapped;
+		}
+		// Empty table (array_size==0, no hash): return empty Map.
+		JSValue flat = JS_NewArray(ctx);
+		JSValue map = JS_Call(ctx, l->build_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&flat);
+		JS_FreeValue(ctx, flat);
+		return map;
+	}
+
+	// Phase 3: hash part exists -- build flat [k0,v0,...] array for buildmap.
 	JSValue flat = JS_NewArray(ctx);
 	int64_t idx = 0;
+	// Array part becomes Map keys 1..n (1-based, Lua convention).
 	for (int i = 0; i < array_size; i++) {
-		// array part becomes Map keys 1..n (1-based, like Lua)
-		JSValue e = unpack_one(ctx, l, rb);
-		if (JS_IsException(e)) {
-			JS_FreeValue(ctx, flat);   // owns every value defined so far
-			return e;
-		}
 		JSValue k = JS_NewInt64(ctx, i + 1);
 		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
-		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, e, 0);
+		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, elems[i], 0);
 	}
+	if (elems) js_free(ctx, elems);
+
+	// First hash pair (key already consumed above).
+	JSValue first_val = unpack_one(ctx, l, rb);
+	if (JS_IsException(first_val)) {
+		JS_FreeValue(ctx, first_key);
+		JS_FreeValue(ctx, flat);
+		return first_val;
+	}
+	JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, first_key, 0);
+	JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, first_val, 0);
+
+	// Remaining hash pairs.
 	for (;;) {
 		JSValue k = unpack_one(ctx, l, rb);
 		if (JS_IsException(k)) {
@@ -490,6 +544,7 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
 		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, v, 0);
 	}
+
 	JSValue map = JS_Call(ctx, l->build_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&flat);
 	JS_FreeValue(ctx, flat);
 	return map;
@@ -714,8 +769,20 @@ js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 // evaluated once in JS: Map detection/iteration/build helpers
 static const char *seri_helpers_js =
 	"globalThis.__snjs_seri = {\n"
-	"    entries: function (m) { return (m instanceof Map) ? Array.from(m.entries()) : null; },\n"
+	"    entries: function (m) {\n"
+	"        if (!(m instanceof Map)) return null;\n"
+	"        var flat = new Array(m.size * 2);\n"
+	"        var i = 0;\n"
+	"        m.forEach(function(v, k) { flat[i++] = k; flat[i++] = v; });\n"
+	"        return flat;\n"
+	"    },\n"
 	"    buildmap: function (flat) { const m = new Map(); for (let i = 0; i < flat.length; i += 2) m.set(flat[i], flat[i + 1]); return m; },\n"
+	"    luaarray: function (a) {\n"
+	"        Object.defineProperty(a, 'get', { value: function(k) { return this[k - 1]; } });\n"
+	"        Object.defineProperty(a, 'has', { value: function(k) { return k >= 1 && k <= this.length; } });\n"
+	"        Object.defineProperty(a, 'size', { get: function() { return this.length; } });\n"
+	"        return a;\n"
+	"    },\n"
 	"};\n";
 
 int
@@ -730,10 +797,13 @@ js_seri_init(struct snjs *l) {
 	JS_FreeValue(l->jsc, g);
 	JSValue entries_fn = JS_GetPropertyStr(l->jsc, obj, "entries");
 	JSValue build_map_fn = JS_GetPropertyStr(l->jsc, obj, "buildmap");
+	JSValue lua_array_fn = JS_GetPropertyStr(l->jsc, obj, "luaarray");
 	l->map_entries_fn = JS_DupValue(l->jsc, entries_fn);
 	l->build_map_fn = JS_DupValue(l->jsc, build_map_fn);
+	l->lua_array_fn = JS_DupValue(l->jsc, lua_array_fn);
 	JS_FreeValue(l->jsc, entries_fn);
 	JS_FreeValue(l->jsc, build_map_fn);
+	JS_FreeValue(l->jsc, lua_array_fn);
 	JS_FreeValue(l->jsc, obj);
 	return 0;
 }

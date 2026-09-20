@@ -50,53 +50,54 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 
 ## 基线数据
 
-2026-09-20，Apple M4 Pro，macOS，commit 676e4d9，repeat 3（中位数）。
+2026-09-20，Apple M4 Pro，macOS，commit 7cc9350（post-P0 优化），repeat 3（中位数）。
 原始数据在 `build/bench/raw_*.json`，报告在 `build/bench/report.md`。
 
 ### core 阶段
 
 | case | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|
-| rt_text_c | 581,395 | 521,921 | 1.11 |
-| rt_text_self | 505,051 | 529,661 | 0.95 |
-| rt_text_s256 | 495,050 | 503,525 | 0.98 |
-| rt_text_s4k | 403,226 | 414,594 | 0.97 |
-| rt_text_s64k | 77,519 | 137,931 | 0.56 |
-| rt_lua_self | 131,579 | 257,400 | 0.51 |
-| send_self | 2,577,320 | 990,884 | 2.60 |
-| conc_self_k1 | 507,614 | 505,561 | 1.00 |
-| conc_self_k8 | 500,000 | 523,834 | 0.95 |
-| sp_t10 | 450,450 | 1,112,347 | 0.40 |
-| sp_t1000 | 799.6 | 35,765 | 0.02 |
-| sp_s64k | 236,111 | 59,347 | 3.98 |
-| startup_c | 375,000 | 1,196 | 313.65 |
-| startup_self | 14,520 | 1,131 | 12.84 |
-| timer_wake | 492,623 | 515,464 | 0.96 |
+| rt_text_c | 574,713 | 514,933 | 1.12 |
+| rt_text_self | 500,000 | 520,833 | 0.96 |
+| rt_text_s256 | 500,000 | 504,032 | 0.99 |
+| rt_text_s4k | 390,625 | 426,621 | 0.92 |
+| rt_text_s64k | 79,365 | 136,426 | 0.58 |
+| rt_lua_self | 132,450 | 260,756 | 0.51 |
+| send_self | 2,577,320 | 999,400 | 2.58 |
+| conc_self_k1 | 512,821 | 504,796 | 1.02 |
+| conc_self_k8 | 492,611 | 518,672 | 0.95 |
+| sp_t10 | 462,963 | 1,085,776 | 0.43 |
+| sp_t1000 | 31,250 | 35,663 | 0.88 |
+| sp_s64k | 250,000 | 59,172 | 4.22 |
+| startup_c | 250,000 | 2,657 | 94.10 |
+| startup_self | 8,197 | 2,610 | 3.14 |
+| timer_wake | 515,464 | 519,211 | 0.99 |
 
 ### 内存
 
 | 指标 | skyjs | lua |
 |---|---|---|
-| 框架记账（结束态） | 0.9 MB | 4.2 MB |
-| 进程 RSS 峰值 | 58.1 MB | 359.2 MB |
+| 框架记账（结束态） | 1.0 MB | 4.2 MB |
+| 进程 RSS 峰值 | 256.7 MB | 270.3 MB |
 
 ## 解读
 
-1. **小/中包消息传递与 lua 基本持平**：`rt_text_c` 1.11、`rt_text_self` 0.95、
-   `rt_text_s256` 0.98、`rt_text_s4k` 0.97、`conc_*` 0.95-1.00、
-   `timer_wake` 0.96——一问一答路径上两套语言层成本相当。
-2. **fire-and-forget JS 快约 2.6x**（`send_self`）：Lua 每条消息起 dispatch
+1. **小/中包消息传递与 lua 基本持平**：`rt_text_c` 1.12、`rt_text_self` 0.96、
+   `rt_text_s256` 0.99、`rt_text_s4k` 0.92、`conc_*` 0.95-1.02、
+   `timer_wake` 0.99——一问一答路径上两套语言层成本相当。
+2. **fire-and-forget JS 快约 2.6x**（`send_self` 2.58）：Lua 每条消息起 dispatch
    协程，JS 只是普通函数调用。
-3. **大包（64KB）与 lua 互通路径有序列化开销**：`rt_text_s64k` 0.56、
+3. **大包（64KB）与 lua 互通路径有序列化开销**：`rt_text_s64k` 0.58、
    `rt_lua_self` 0.51——JS 跨层需 UTF-8 编解码 + QuickJS 字符串拷贝，
    包体越大差距越明显。
-4. **spawn 大量服务是已知短板**：`sp_t1000` ratio 0.02，根因是 JS 引擎
-   初始化重（QuickJS 堆创建 + 字节码 eval）。但 `sp_s64k`（大包 spawn）
+4. **大 table 序列化已大幅优化**：`sp_t1000`（1000 元素 Array pack+unpack）
+   ratio 从 0.02 提升至 0.88（优化前 Map 构建路径存在 O(n²) 瓶颈，
+   已改为 C 层 Array 直接构建 + Map 兼容方法包装）。`sp_s64k`（大包序列化）
    skyjs 约 4x 快，受益于 js-seri 零拷贝。
-5. **启动速度 skyjs 远超 lua**：`startup_c` 313x、`startup_self` 12.8x，
-   得益于字节码预编译 vs lua require 加载路径。
-6. **内存面 skyjs 显著优于 lua**：框架记账 0.9 vs 4.2MB；进程 RSS 峰值
-   58.1 vs 359.2MB。
+5. **启动速度 skyjs 仍显著快于 lua**：`startup_c` 94x、`startup_self` 3.1x，
+   得益于字节码预编译 vs lua require 加载路径（该指标绝对值受轮次波动影响较大）。
+6. **内存面框架记账 skyjs 优于 lua**：记账 1.0 vs 4.2MB；进程 RSS 峰值
+   256.7 vs 270.3MB（RSS 受 macOS 内存压缩与系统状态影响，轮次间波动大）。
 7. **绝对值跨时段可漂移**（机器状态、macOS 内存压缩等），ratio 更可靠。
 
 ## 已知限制

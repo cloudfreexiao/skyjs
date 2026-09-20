@@ -26,8 +26,9 @@ struct snjs {
 	int js_managed;   // skynet.js loaded: responses are sent from JS (__snjs_wrap)
 
 	// js-seri helpers (evaluated in js_seri_init)
-	JSValue map_entries_fn;   // (m) => Array<[k,v]> | null
+	JSValue map_entries_fn;   // (m) => flat [k0,v0,...] | null
 	JSValue build_map_fn;     // (flat [k0,v0,k1,v1,...]) => Map
+	JSValue lua_array_fn;     // (arr) => arr with .get/.has/.size (Map-compat wrapper)
 
 	// js-netpack: gateserver frame buffer (lazily allocated per service)
 	struct np_queue *netpack_q;   // 2-byte framed packet ring + per-fd reassembly

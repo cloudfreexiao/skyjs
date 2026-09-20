@@ -911,6 +911,7 @@ snjs_create(void) {
 	l->dispatch = JS_UNDEFINED;
 	l->map_entries_fn = JS_UNDEFINED;
 	l->build_map_fn = JS_UNDEFINED;
+	l->lua_array_fn = JS_UNDEFINED;
 	ATOM_INIT(&l->trap, 0);
 	l->rt = JS_NewRuntime2(&js_mf, l);
 	if (l->rt == NULL) {
@@ -933,6 +934,7 @@ snjs_release(struct snjs *l) {
 	JS_FreeValue(l->jsc, l->dispatch);
 	JS_FreeValue(l->jsc, l->map_entries_fn);
 	JS_FreeValue(l->jsc, l->build_map_fn);
+	JS_FreeValue(l->jsc, l->lua_array_fn);
 	JS_FreeContext(l->jsc);
 	JS_FreeRuntime(l->rt);
 	skynet_free(l);

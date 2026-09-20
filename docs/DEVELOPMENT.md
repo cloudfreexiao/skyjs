@@ -142,7 +142,8 @@ seri → JS（unpack）类型映射：
 | 整数 qword（超出 int32 表达范围，即 Lua 侧 64 位整数） | `BigInt` |
 | 整数 zero/byte/word/dword、real | `number` |
 | string | `string` |
-| table | `Map`（数组部分展开为键 1..n，Lua 1-based） |
+| table (array-only) | `Array`（0-based；Lua 1-based 键隐含；附带 Map 兼容方法 `.get(k)`/`.has(k)`/`.size`，k 为 1-based） |
+| table (mixed/hash)  | `Map`（数组部分展开为键 1..n，Lua 1-based） |
 | userdata | **unpack 直接抛 TypeError**（指针跨 VM 禁传，与原版语义一致） |
 
 ### 边界行为备忘
@@ -150,8 +151,10 @@ seri → JS（unpack）类型映射：
 - int64 经 BigInt 往返：Lua 侧 64 位整数 unpack 恒为 `BigInt`（不回退 number）；
   JS 侧表达超过 2^53 的整数必须自觉用 BigInt（number 在 pack 前已丢精度）。
   int32 范围内的整数双向均为 number，`BigInt(5)` 与 `5` 的 pack 产物一致。
-- table 往返不对称：seri table 在 JS 侧一律解为 `Map`（含数组部分）；需要 JS
-  数组时自行按键 1..n 还原，不要假设 JS Array ↔ Lua 数组直通。
+- table 往返区分处理：seri table 的纯数组部分（无 hash）解为 0-based JS `Array`，含
+  hash 部分的表解为 `Map`（数组键 1..n）。pack 方向不变：JS Array 写入数组部分，
+  Map/对象写入 hash 部分。轮回结果：pack([1,2,3]) → unpack → [1,2,3] (Array)；
+  pack({a:1}) → unpack → Map{"a"→1}。
 - 嵌套深度超过 32 层 pack 报 "pack too deep"。
 
 ## Gate / netpack / redirect
