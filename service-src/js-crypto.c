@@ -16,6 +16,12 @@
 #ifdef __linux__
 #include <sys/random.h>
 #endif
+#if defined(_WIN32)
+/* rand_s() needs _CRT_RAND_S defined before <stdlib.h>, but on MinGW the forced
+ * compat header pulls <stdlib.h> in first, so declare the msvcrt prototype
+ * directly instead (links without any extra library). */
+int rand_s(unsigned int *);
+#endif
 
 #define SMALL_CHUNK 256
 
@@ -609,8 +615,18 @@ static void crypt_xor_inplace(uint8_t *data, size_t dlen, const uint8_t *key, si
 	size_t i; for (i=0;i<dlen;i++) data[i]^=key[i%klen];
 }
 static void crypt_random_bytes(uint8_t *out, size_t n) {
-#ifdef __linux__
+#if defined(__linux__)
 	getrandom(out,n,0);
+#elif defined(_WIN32)
+	/* mingw has neither getrandom nor arc4random_buf; rand_s wraps RtlGenRandom */
+	size_t i;
+	for (i = 0; i < n; ) {
+		unsigned int r = 0;
+		size_t chunk = (n - i < sizeof(r)) ? (n - i) : sizeof(r);
+		rand_s(&r);
+		memcpy(out + i, &r, chunk);
+		i += chunk;
+	}
 #else
 	arc4random_buf(out,n);
 #endif

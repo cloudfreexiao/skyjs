@@ -4,6 +4,7 @@ cservice/*.so
 test/cservice/*.so
 test/seri_tool
 /skyjs
+/skyjs.exe
 *.dSYM
 
 # JS dev toolchain (lint / TS build)

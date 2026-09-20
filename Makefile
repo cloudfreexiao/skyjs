@@ -1,22 +1,34 @@
 UNAME_S := $(shell uname)
 
 CC ?= cc
+AR ?= ar
 CFLAGS ?= -g -O2 -Wall
 
 COMPAT_MINGW_DIR := 3rd/skynet/3rd/compat-mingw
 
-ifeq ($(UNAME_S),Darwin)
+# PLAT selects the target: macosx / linux / mingw.  Normally auto-detected from
+# the host, but it can be forced explicitly to cross-compile, e.g. from macOS:
+#   make PLAT=mingw CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar
+ifeq ($(PLAT),)
+  ifeq ($(UNAME_S),Darwin)
+    PLAT := macosx
+  else ifeq ($(OS),Windows_NT)
+    PLAT := mingw
+  else
+    PLAT := linux
+  endif
+endif
+
+ifeq ($(PLAT),macosx)
   SHARED := -fPIC -dynamiclib -Wl,-undefined,dynamic_lookup
   LIBS := -lpthread -lm -ldl
-  PLAT := macosx
   EXE_SUFFIX :=
   COMPAT_FLAGS :=
 
-else ifeq ($(OS),Windows_NT)
-  # Windows/MinGW — 直接引用 skynet 的 compat-mingw 层
+else ifeq ($(PLAT),mingw)
+  # Windows/MinGW — reuse skynet's compat-mingw layer
   SHARED := -fPIC --shared -Wl,--export-all-symbols,--enable-auto-import
   LIBS := -static-libgcc -lpthread -lm -lws2_32 -lgdi32
-  PLAT := mingw
   EXE_SUFFIX := .exe
   COMPAT_FLAGS := -I$(COMPAT_MINGW_DIR) -include $(COMPAT_MINGW_DIR)/compat.h
   CFLAGS += $(COMPAT_FLAGS)
@@ -26,9 +38,24 @@ else
   # Linux
   SHARED := -fPIC --shared
   LIBS := -lpthread -lm -ldl -lrt
-  PLAT := linux
   EXE_SUFFIX :=
   COMPAT_FLAGS :=
+endif
+
+# Windows DLLs must resolve every symbol at link time (unlike Linux/macOS shared
+# objects).  skyjs.exe exports its symbols and emits an import library as a side
+# effect of linking; each cservice DLL then links against that import library so
+# the skynet_* callbacks resolve as imports from skyjs.exe.  Defined here (before
+# any rule uses it) because prerequisite lists are expanded at parse time.
+ifeq ($(PLAT),mingw)
+  IMPORT_LIB := build/libskyjs.a
+  EXPORT_DYNAMIC := -Wl,--export-all-symbols,--out-implib,$(IMPORT_LIB)
+else ifeq ($(PLAT),linux)
+  IMPORT_LIB :=
+  EXPORT_DYNAMIC := -rdynamic
+else
+  IMPORT_LIB :=
+  EXPORT_DYNAMIC :=
 endif
 
 # NOUSE_JEMALLOC: system malloc, per-service memstat still active (malloc_hook.c)
@@ -45,6 +72,18 @@ ifeq ($(TLS),openssl)
 endif
 
 SKYNET_INC := 3rd/skynet/skynet-src
+
+# qjsc is a build-time codegen tool: it must run on the build HOST, not the
+# target.  Native builds (incl. MSYS2, where CC is already the mingw gcc) build
+# it with CC as before.  When cross-compiling to mingw from a non-Windows host,
+# build it (and the quickjs objects it needs) with HOST_CC instead so it can
+# actually run.
+HOST_CC ?= cc
+ifeq ($(PLAT),mingw)
+  ifneq ($(OS),Windows_NT)
+    CROSS := 1
+  endif
+endif
 
 # 15 of the 17 original SKYNET_SRC files; skynet_main.c and skynet_env.c are
 # replaced by platform/main.c and platform/env.c (skynet sources untouched).
@@ -98,8 +137,18 @@ build/tls.o: service-src/js-tls.c | build
 # host compiler used to precompile the JS runtime libraries into bytecode
 # (quickjs-libc provides the std helpers qjsc references).
 # NOTE: kept below the `all` rule so plain `make` still builds everything.
+ifdef CROSS
+# Cross build: compile qjsc and its quickjs objects with the host toolchain so
+# the generated tool runs on this machine (plain flags, no mingw compat layer).
+QJSC_QJS_OBJ := $(addprefix build/hostqjs_,$(notdir $(QJS_SRC:.c=.o)))
+build/hostqjs_%.o: 3rd/quickjs/%.c | build
+	$(HOST_CC) -g -O2 -Wall -D_GNU_SOURCE -I3rd/quickjs -c $< -o $@
+build/qjsc: 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJSC_QJS_OBJ) | build
+	$(HOST_CC) -g -O2 -Wall -D_GNU_SOURCE -I3rd/quickjs -o $@ 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJSC_QJS_OBJ) -lm
+else
 build/qjsc: 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) | build
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I3rd/quickjs -o $@ 3rd/quickjs/qjsc.c 3rd/quickjs/quickjs-libc.c $(QJS_OBJ) -lm
+endif
 
 # embedded bytecode of js/skynet.js + js/socket.js + js/crypt.js +
 # js/sockethelper.js + js/cluster.js + js/gateserver.js + js/http.js +
@@ -120,7 +169,7 @@ build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.
 build/rt_bc.o: build/rt_bc.c | build
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(QJS_OBJ) | cservice
+cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(QJS_OBJ) $(IMPORT_LIB) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $(OPENSSL_LDFLAGS) -o $@ $^ -lm
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped
@@ -140,23 +189,24 @@ else
 COMPAT_OBJ :=
 endif
 
-ifeq ($(PLAT),linux)
-  EXPORT_DYNAMIC := -rdynamic
-else
-  EXPORT_DYNAMIC :=
-endif
-
 $(TARGET): $(SKYNET_OBJ) $(PLATFORM_OBJ) $(COMPAT_OBJ)
 	$(CC) $(CFLAGS) $(EXPORT_DYNAMIC) -o $@ $^ $(LIBS)
 
-cservice/logger.so: 3rd/skynet/service-src/service_logger.c | cservice
-	$(CC) $(CFLAGS) $(SHARED) $< -o $@ -I$(SKYNET_INC)
+# On MinGW the import library is produced together with skyjs.exe; declare the
+# dependency so cservice DLLs are linked only after it exists.
+ifeq ($(PLAT),mingw)
+$(IMPORT_LIB): $(TARGET)
+	@:
+endif
 
-test/cservice/%.so: test/service-src/%.c | test/cservice
-	$(CC) $(CFLAGS) $(SHARED) $< -o $@ -I$(SKYNET_INC)
+cservice/logger.so: 3rd/skynet/service-src/service_logger.c $(IMPORT_LIB) | cservice
+	$(CC) $(CFLAGS) $(SHARED) $< -o $@ -I$(SKYNET_INC) $(IMPORT_LIB)
 
-cservice/skyclusterd.so: service-src/skyclusterd.c | cservice
-	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $< -o $@ -I$(SKYNET_INC) -Iplatform
+test/cservice/%.so: test/service-src/%.c $(IMPORT_LIB) | test/cservice
+	$(CC) $(CFLAGS) $(SHARED) $< -o $@ -I$(SKYNET_INC) $(IMPORT_LIB)
+
+cservice/skyclusterd.so: service-src/skyclusterd.c $(IMPORT_LIB) | cservice
+	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $< -o $@ -I$(SKYNET_INC) -Iplatform $(IMPORT_LIB)
 
 clean:
 	rm -rf build $(TARGET) test/seri_tool cservice/*.so test/cservice/*.so
