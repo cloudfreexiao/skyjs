@@ -12,8 +12,16 @@
  *   qword        <-> BigInt (always, preserves >2^53)
  *   real         <-> number (non-integer)
  *   string       <-> string (UTF-8; arbitrary binary needs ArrayBuffer in JS)
- *   table (array-only) <-> JS Array (0-based; Lua 1-based keys implicit)
- *   table (mixed/hash)  <-> JS Map (array part keeps 1-based integer keys)
+ *   table        <-> LuaTable {array:[...0-based...], hash:Map} (lossless target)
+ *
+ * A Lua table is one value carrying an array segment (keys 1..n) plus a hash
+ * segment; JS has three container types, so the mapping is asymmetric:
+ *   - unpack (decode): EVERY table becomes a LuaTable, so the receive side is
+ *     unambiguous (no Array-vs-Map flip, no empty-collapse, integer hash keys
+ *     stay numbers). Empty table -> LuaTable([], new Map()).
+ *   - pack (encode): LuaTable is the canonical, byte-optimal source; JS Array
+ *     (pure array segment), Map (hash pairs) and Object (string-keyed hash) are
+ *     accepted as convenience sugar but all read back as LuaTable.
  *   userdata     <-> error (pointers never cross VMs)
  *
  * Map iteration is impossible through plain C property APIs, so the helpers
@@ -276,6 +284,20 @@ seri_error(JSContext *ctx, struct write_block *b, const char *fmt, int line) {
 static int
 pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, int depth);
 
+// TYPE_TABLE cookie header: the array-segment length is inlined into the cookie
+// (0..MAX_COOKIE-2) or spilled as a trailing integer (MAX_COOKIE-1 escape).
+static void
+wb_table_header(struct write_block *b, int32_t arr_len) {
+	if (arr_len >= MAX_COOKIE - 1) {
+		uint8_t n = COMBINE_TYPE(TYPE_TABLE, MAX_COOKIE - 1);
+		wb_push(b, &n, 1);
+		wb_integer(b, arr_len);
+	} else {
+		uint8_t n = COMBINE_TYPE(TYPE_TABLE, (uint8_t)arr_len);
+		wb_push(b, &n, 1);
+	}
+}
+
 // Object own enumerable string properties -> hash part
 static int
 pack_object(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, int depth) {
@@ -368,14 +390,7 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 			seri_error(ctx, b, "negative array length", __LINE__);
 			return -1;
 		}
-		if (arr_len >= MAX_COOKIE - 1) {
-			uint8_t n = COMBINE_TYPE(TYPE_TABLE, MAX_COOKIE - 1);
-			wb_push(b, &n, 1);
-			wb_integer(b, arr_len);
-		} else {
-			uint8_t n = COMBINE_TYPE(TYPE_TABLE, (uint8_t)arr_len);
-			wb_push(b, &n, 1);
-		}
+		wb_table_header(b, arr_len);
 		for (int32_t i = 0; i < arr_len; i++) {
 			JSValue elem = JS_GetPropertyUint32(ctx, v, (uint32_t)i);
 			int r = pack_one(ctx, l, b, elem, depth + 1);
@@ -389,6 +404,64 @@ pack_one(JSContext *ctx, struct snjs *l, struct write_block *b, JSValueConst v, 
 		return 0;
 	}
 	if (JS_IsObject(v)) {
+		// LuaTable? (explicit {array, hash} wrapper: lossless + byte-optimal,
+		// emits the array segment then the hash pairs exactly like lua-seri)
+		JSValue parts = JS_Call(ctx, l->lua_table_parts_fn, JS_UNDEFINED, 1, (JSValueConst *)&v);
+		if (JS_IsException(parts)) {
+			wb_free(b);
+			return -1;
+		}
+		if (!JS_IsNull(parts)) {
+			JSValue arr = JS_GetPropertyUint32(ctx, parts, 0);
+			JSValue hashflat = JS_GetPropertyUint32(ctx, parts, 1);
+			JS_FreeValue(ctx, parts);
+			// array segment
+			JSValue lenv = JS_GetPropertyStr(ctx, arr, "length");
+			int32_t arr_len = 0;
+			JS_ToInt32(ctx, &arr_len, lenv);
+			JS_FreeValue(ctx, lenv);
+			if (arr_len < 0) {
+				JS_FreeValue(ctx, arr);
+				JS_FreeValue(ctx, hashflat);
+				seri_error(ctx, b, "negative array length", __LINE__);
+				return -1;
+			}
+			wb_table_header(b, arr_len);
+			for (int32_t i = 0; i < arr_len; i++) {
+				JSValue elem = JS_GetPropertyUint32(ctx, arr, (uint32_t)i);
+				int r = pack_one(ctx, l, b, elem, depth + 1);
+				JS_FreeValue(ctx, elem);
+				if (r) {
+					JS_FreeValue(ctx, arr);
+					JS_FreeValue(ctx, hashflat);
+					wb_free(b);
+					return -1;
+				}
+			}
+			JS_FreeValue(ctx, arr);
+			// hash segment: hashflat is flat [k0,v0,k1,v1,...]
+			JSValue hlenv = JS_GetPropertyStr(ctx, hashflat, "length");
+			int32_t hn = 0;
+			JS_ToInt32(ctx, &hn, hlenv);
+			JS_FreeValue(ctx, hlenv);
+			for (int32_t i = 0; i < hn; i += 2) {
+				JSValue k = JS_GetPropertyUint32(ctx, hashflat, (uint32_t)i);
+				JSValue val = JS_GetPropertyUint32(ctx, hashflat, (uint32_t)(i + 1));
+				int r1 = pack_one(ctx, l, b, k, depth + 1);
+				int r2 = pack_one(ctx, l, b, val, depth + 1);
+				JS_FreeValue(ctx, k);
+				JS_FreeValue(ctx, val);
+				if (r1 || r2) {
+					JS_FreeValue(ctx, hashflat);
+					wb_free(b);
+					return -1;
+				}
+			}
+			JS_FreeValue(ctx, hashflat);
+			wb_nil(b);
+			return 0;
+		}
+		JS_FreeValue(ctx, parts);
 		// Map? (C property APIs can't see Map slots; use the JS helper)
 		JSValue entries = JS_Call(ctx, l->map_entries_fn, JS_UNDEFINED, 1, (JSValueConst *)&v);
 		if (JS_IsException(entries)) {
@@ -452,83 +525,25 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		array_size = (int)n;
 	}
 
-	// Phase 1: read all array-part elements into a C-side temp buffer.
-	// We need them regardless of whether the final result is Array or Map;
-	// deferring the decision avoids building a JS container twice.
-	JSValue *elems = NULL;
-	if (array_size > 0) {
-		elems = js_malloc(ctx, sizeof(JSValue) * array_size);
-		if (elems == NULL) return JS_ThrowOutOfMemory(ctx);
-		for (int i = 0; i < array_size; i++) {
-			elems[i] = unpack_one(ctx, l, rb);
-			if (JS_IsException(elems[i])) {
-				for (int j = 0; j < i; j++) JS_FreeValue(ctx, elems[j]);
-				js_free(ctx, elems);
-				return JS_EXCEPTION;
-			}
-		}
-	}
-
-	// Phase 2: probe the first hash-part key.  TYPE_NIL = no hash part.
-	JSValue first_key = unpack_one(ctx, l, rb);
-	if (JS_IsException(first_key)) {
-		if (elems) {
-			for (int i = 0; i < array_size; i++) JS_FreeValue(ctx, elems[i]);
-			js_free(ctx, elems);
-		}
-		return first_key;
-	}
-
-	if (JS_IsNull(first_key)) {
-		JS_FreeValue(ctx, first_key);
-		if (array_size > 0) {
-			// Array-only table: build a 0-based JS Array entirely in C.
-			// This is the fast path for payloads like sp_t1000 -- no JS
-			// function call, no intermediate flat array, no Map overhead.
-			JSValue arr = JS_NewArray(ctx);
-			for (int i = 0; i < array_size; i++) {
-				JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, elems[i], 0);
-			}
-			js_free(ctx, elems);
-			// Wrap with Map-compat methods (.get/.has/.size) so consumer
-			// code that was written for the old Map return type still works.
-			JSValue wrapped = JS_Call(ctx, l->lua_array_fn, JS_UNDEFINED, 1, (JSValueConst *)&arr);
-			JS_FreeValue(ctx, arr);
-			return wrapped;
-		}
-		// Empty table (array_size==0, no hash): return empty Map.
-		JSValue flat = JS_NewArray(ctx);
-		JSValue map = JS_Call(ctx, l->build_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&flat);
-		JS_FreeValue(ctx, flat);
-		return map;
-	}
-
-	// Phase 3: hash part exists -- build flat [k0,v0,...] array for buildmap.
-	JSValue flat = JS_NewArray(ctx);
-	int64_t idx = 0;
-	// Array part becomes Map keys 1..n (1-based, Lua convention).
+	// Array segment -> a 0-based JS Array (built directly in C).
+	JSValue array = JS_NewArray(ctx);
 	for (int i = 0; i < array_size; i++) {
-		JSValue k = JS_NewInt64(ctx, i + 1);
-		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
-		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, elems[i], 0);
+		JSValue e = unpack_one(ctx, l, rb);
+		if (JS_IsException(e)) {
+			JS_FreeValue(ctx, array);
+			return JS_EXCEPTION;
+		}
+		JS_DefinePropertyValueUint32(ctx, array, (uint32_t)i, e, 0);
 	}
-	if (elems) js_free(ctx, elems);
 
-	// First hash pair (key already consumed above).
-	JSValue first_val = unpack_one(ctx, l, rb);
-	if (JS_IsException(first_val)) {
-		JS_FreeValue(ctx, first_key);
-		JS_FreeValue(ctx, flat);
-		return first_val;
-	}
-	JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, first_key, 0);
-	JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, first_val, 0);
-
-	// Remaining hash pairs.
+	// Hash segment -> flat [k0,v0,k1,v1,...]; TYPE_NIL key = no hash part.
+	JSValue hashflat = JS_NewArray(ctx);
+	int64_t idx = 0;
 	for (;;) {
 		JSValue k = unpack_one(ctx, l, rb);
 		if (JS_IsException(k)) {
-			JS_FreeValue(ctx, flat);
+			JS_FreeValue(ctx, array);
+			JS_FreeValue(ctx, hashflat);
 			return k;
 		}
 		if (JS_IsNull(k)) {
@@ -538,16 +553,21 @@ unpack_table(JSContext *ctx, struct snjs *l, struct read_block *rb, int array_si
 		JSValue v = unpack_one(ctx, l, rb);
 		if (JS_IsException(v)) {
 			JS_FreeValue(ctx, k);
-			JS_FreeValue(ctx, flat);
+			JS_FreeValue(ctx, array);
+			JS_FreeValue(ctx, hashflat);
 			return v;
 		}
-		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, k, 0);
-		JS_DefinePropertyValueUint32(ctx, flat, (uint32_t)idx++, v, 0);
+		JS_DefinePropertyValueUint32(ctx, hashflat, (uint32_t)idx++, k, 0);
+		JS_DefinePropertyValueUint32(ctx, hashflat, (uint32_t)idx++, v, 0);
 	}
 
-	JSValue map = JS_Call(ctx, l->build_map_fn, JS_UNDEFINED, 1, (JSValueConst *)&flat);
-	JS_FreeValue(ctx, flat);
-	return map;
+	// Every table decodes to a LuaTable (array segment + hash Map), so the
+	// receive side is unambiguous. Empty table -> LuaTable([], new Map()).
+	JSValueConst args[2] = { array, hashflat };
+	JSValue lt = JS_Call(ctx, l->lua_table_build_fn, JS_UNDEFINED, 2, args);
+	JS_FreeValue(ctx, array);
+	JS_FreeValue(ctx, hashflat);
+	return lt;
 }
 
 static JSValue
@@ -766,8 +786,38 @@ js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 	return JS_NewStringLen(ctx, (const char *)p, sz);
 }
 
-// evaluated once in JS: Map detection/iteration/build helpers
+// evaluated once in JS: the LuaTable class + Map/LuaTable pack/unpack helpers.
+// Defined here (not in skynet.js) so LuaTable exists regardless of loader order.
 static const char *seri_helpers_js =
+	"globalThis.LuaTable = class LuaTable {\n"
+	"    constructor(array, hash) {\n"
+	"        this.array = array || [];\n"
+	"        this.hash = hash instanceof Map ? hash : new Map();\n"
+	"    }\n"
+	"    get len() { return this.array.length; }\n"
+	"    get(k) {\n"
+	"        if (typeof k === 'number' && Number.isInteger(k) && k >= 1 && k <= this.array.length) return this.array[k - 1];\n"
+	"        return this.hash.get(k);\n"
+	"    }\n"
+	"    set(k, v) {\n"
+	"        if (typeof k === 'number' && Number.isInteger(k) && k >= 1 && k <= this.array.length + 1) this.array[k - 1] = v;\n"
+	"        else this.hash.set(k, v);\n"
+	"        return this;\n"
+	"    }\n"
+	"    entries() {\n"
+	"        const out = [];\n"
+	"        for (let i = 0; i < this.array.length; i++) out.push([i + 1, this.array[i]]);\n"
+	"        for (const e of this.hash) out.push(e);\n"
+	"        return out;\n"
+	"    }\n"
+	"    [Symbol.iterator]() { return this.entries()[Symbol.iterator](); }\n"
+	"    toJSON() {\n"
+	"        const o = {};\n"
+	"        for (let i = 0; i < this.array.length; i++) o[i + 1] = this.array[i];\n"
+	"        this.hash.forEach(function (v, k) { o[k] = v; });\n"
+	"        return o;\n"
+	"    }\n"
+	"};\n"
 	"globalThis.__snjs_seri = {\n"
 	"    entries: function (m) {\n"
 	"        if (!(m instanceof Map)) return null;\n"
@@ -776,12 +826,16 @@ static const char *seri_helpers_js =
 	"        m.forEach(function(v, k) { flat[i++] = k; flat[i++] = v; });\n"
 	"        return flat;\n"
 	"    },\n"
-	"    buildmap: function (flat) { const m = new Map(); for (let i = 0; i < flat.length; i += 2) m.set(flat[i], flat[i + 1]); return m; },\n"
-	"    luaarray: function (a) {\n"
-	"        Object.defineProperty(a, 'get', { value: function(k) { return this[k - 1]; } });\n"
-	"        Object.defineProperty(a, 'has', { value: function(k) { return k >= 1 && k <= this.length; } });\n"
-	"        Object.defineProperty(a, 'size', { get: function() { return this.length; } });\n"
-	"        return a;\n"
+	"    buildluatable: function (array, hashFlat) {\n"
+	"        var m = new Map();\n"
+	"        for (var i = 0; i < hashFlat.length; i += 2) m.set(hashFlat[i], hashFlat[i + 1]);\n"
+	"        return new globalThis.LuaTable(array, m);\n"
+	"    },\n"
+	"    luatableparts: function (v) {\n"
+	"        if (!(v instanceof globalThis.LuaTable)) return null;\n"
+	"        var flat = [];\n"
+	"        if (v.hash instanceof Map) v.hash.forEach(function (val, k) { flat.push(k, val); });\n"
+	"        return [v.array || [], flat];\n"
 	"    },\n"
 	"};\n";
 
@@ -796,14 +850,14 @@ js_seri_init(struct snjs *l) {
 	JSValue obj = JS_GetPropertyStr(l->jsc, g, "__snjs_seri");
 	JS_FreeValue(l->jsc, g);
 	JSValue entries_fn = JS_GetPropertyStr(l->jsc, obj, "entries");
-	JSValue build_map_fn = JS_GetPropertyStr(l->jsc, obj, "buildmap");
-	JSValue lua_array_fn = JS_GetPropertyStr(l->jsc, obj, "luaarray");
+	JSValue build_fn = JS_GetPropertyStr(l->jsc, obj, "buildluatable");
+	JSValue parts_fn = JS_GetPropertyStr(l->jsc, obj, "luatableparts");
 	l->map_entries_fn = JS_DupValue(l->jsc, entries_fn);
-	l->build_map_fn = JS_DupValue(l->jsc, build_map_fn);
-	l->lua_array_fn = JS_DupValue(l->jsc, lua_array_fn);
+	l->lua_table_build_fn = JS_DupValue(l->jsc, build_fn);
+	l->lua_table_parts_fn = JS_DupValue(l->jsc, parts_fn);
 	JS_FreeValue(l->jsc, entries_fn);
-	JS_FreeValue(l->jsc, build_map_fn);
-	JS_FreeValue(l->jsc, lua_array_fn);
+	JS_FreeValue(l->jsc, build_fn);
+	JS_FreeValue(l->jsc, parts_fn);
 	JS_FreeValue(l->jsc, obj);
 	return 0;
 }

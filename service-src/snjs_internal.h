@@ -26,9 +26,9 @@ struct snjs {
 	int js_managed;   // skynet.js loaded: responses are sent from JS (__snjs_wrap)
 
 	// js-seri helpers (evaluated in js_seri_init)
-	JSValue map_entries_fn;   // (m) => flat [k0,v0,...] | null
-	JSValue build_map_fn;     // (flat [k0,v0,k1,v1,...]) => Map
-	JSValue lua_array_fn;     // (arr) => arr with .get/.has/.size (Map-compat wrapper)
+	JSValue map_entries_fn;      // (m) => flat [k0,v0,...] | null (Map pack sugar)
+	JSValue lua_table_build_fn;  // (array, hashFlat) => LuaTable (unpack target)
+	JSValue lua_table_parts_fn;  // (v) => [arrayRef, hashFlat] | null (LuaTable pack)
 
 	// js-netpack: gateserver frame buffer (lazily allocated per service)
 	struct np_queue *netpack_q;   // 2-byte framed packet ring + per-fd reassembly

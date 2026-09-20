@@ -14,7 +14,7 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 |---|---|---|
 | 纯 C 内核 | `test/config.json` | logger + C echo bootstrap |
 | JS echo/打断/OOM | `test/config_js_echo.json`、`config_js_deadloop.json`、`config_js_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
-| TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→Map 往返断言(TS_ECHO_OK) |
+| TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→LuaTable 往返断言(TS_ECHO_OK) |
 | console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
 | 异步核心 | `test/config_js_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
 | socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
@@ -120,7 +120,7 @@ resolve。
 字节级兼容（验收：`test/seri_tool` 对拍 + `test/config_js_seri.json` roundtrip），
 pack 产物可跨 JS/Lua 节点互通。
 
-JS → seri（pack）类型映射：
+JS → seri（pack）类型映射（多入口，回读一律为 LuaTable）：
 
 | JS 类型 | seri 编码 |
 |---|---|
@@ -129,11 +129,13 @@ JS → seri（pack）类型映射：
 | `number` | 精确整数（绝对值 ≤ 2^53 且无小数部分）走整数编码（同 Lua 整数路径），其余 double |
 | `BigInt` | 整数编码，按值选最小宽度（zero/byte/word/dword/qword），与同值 number 产物一致 |
 | `string` | UTF-8 字符串，上限 0x7fffffff 字节 |
-| `Array` | table 数组部分（键 1..n，Lua 1-based） |
-| `Map` / 普通对象 | table hash 部分（对象取可枚举自有属性） |
+| `LuaTable` | **规范源**：`.array` 写数组段（键 1..n）+ `.hash` 写 hash 段，与 Lua 对 `{...}` 的编码字节一致 |
+| `Array` | 语法糖：纯数组段（键 1..n） |
+| `Map` | 语法糖：hash 段（整数键保持整数键） |
+| 普通对象 | 语法糖：hash 段，取可枚举自有属性（键恒为字符串） |
 | 其余（function、symbol 等） | 报错 "unsupported type" |
 
-seri → JS（unpack）类型映射：
+seri → JS（unpack）类型映射（1:1，接收侧无歧义）：
 
 | seri 类型 | JS 类型 |
 |---|---|
@@ -142,8 +144,7 @@ seri → JS（unpack）类型映射：
 | 整数 qword（超出 int32 表达范围，即 Lua 侧 64 位整数） | `BigInt` |
 | 整数 zero/byte/word/dword、real | `number` |
 | string | `string` |
-| table (array-only) | `Array`（0-based；Lua 1-based 键隐含；附带 Map 兼容方法 `.get(k)`/`.has(k)`/`.size`，k 为 1-based） |
-| table (mixed/hash)  | `Map`（数组部分展开为键 1..n，Lua 1-based） |
+| table（任意，含空表/纯数组/混合） | `LuaTable`（`.array` 为 0-based 数组段，`.hash` 为 Map；空表 → `LuaTable([], new Map())`） |
 | userdata | **unpack 直接抛 TypeError**（指针跨 VM 禁传，与原版语义一致） |
 
 ### 边界行为备忘
@@ -151,10 +152,13 @@ seri → JS（unpack）类型映射：
 - int64 经 BigInt 往返：Lua 侧 64 位整数 unpack 恒为 `BigInt`（不回退 number）；
   JS 侧表达超过 2^53 的整数必须自觉用 BigInt（number 在 pack 前已丢精度）。
   int32 范围内的整数双向均为 number，`BigInt(5)` 与 `5` 的 pack 产物一致。
-- table 往返区分处理：seri table 的纯数组部分（无 hash）解为 0-based JS `Array`，含
-  hash 部分的表解为 `Map`（数组键 1..n）。pack 方向不变：JS Array 写入数组部分，
-  Map/对象写入 hash 部分。轮回结果：pack([1,2,3]) → unpack → [1,2,3] (Array)；
-  pack({a:1}) → unpack → Map{"a"→1}。
+- table 统一解为 `LuaTable`：`.array`（0-based，逻辑键 1..n）+ `.hash`（Map），
+  `.get(k)`/`.set(k,v)` 镜像 Lua `t[k]`，`.len` 对应 `#t`。消除了旧方案的三处歧义：
+  空 `[]`/`{}`/`new Map()` 打包后字节皆为 `06 00`，现统一解为空 `LuaTable`（不再塌缩为
+  空 Map、不再丢失数组性）；数组段索引基准不再随 hash 段存在与否在 Array/Map 间翻转。
+- 非对称契约：Array/Map/普通对象为便捷输入糖，回读一律为 `LuaTable`；如需严格对称往返，
+  发送侧显式构造 `LuaTable`。**整数键 hash 必须走 `LuaTable.hash`/`Map`**——普通对象的
+  数字键会被 JS 归一为字符串键（Lua 侧得到字符串键 `t["2"]` 而非 `t[2]`）。
 - 嵌套深度超过 32 层 pack 报 "pack too deep"。
 
 ## Gate / netpack / redirect

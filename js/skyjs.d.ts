@@ -11,18 +11,31 @@
 declare const snjs_param: string;
 
 /**
- * seri unpack 返回的 array-only Lua table 类型：JS Array 附带 Map 兼容访问方法。
- * `.get(k)` / `.has(k)` 中 k 为 Lua 1-based 索引，等价于 `arr[k - 1]`。
- * `.size` 等价于 `.length`。
- * 这些方法是 non-enumerable 的，不影响 JSON.stringify / for-in / pack。
+ * seri 解包的唯一 Lua table 目标类型（无损映射 Lua table 语义）。
+ * 一个 Lua table = 数组段（键 1..n）+ 哈希段，故：
+ * - `array`：0-based JS 数组，逻辑上对应 Lua 键 `1..n`。
+ * - `hash`：Map，承载所有非 `1..n` 键（整数键保持 number，字符串键为 string）。
+ * 打包侧 LuaTable 为规范源；JS Array/Map/Object 作为便捷语法糖也可打包，
+ * 但一律回读为 LuaTable。整数键 hash 必须走 `hash`/Map，普通对象的数字键
+ * 会被映射为字符串键（JS 限制）。
  */
-interface LuaArray<T = unknown> extends Array<T> {
-    /** Map 兼容：按 Lua 1-based 键获取元素，等价于 this[k - 1] */
-    get(k: number): T | undefined;
-    /** Map 兼容：检查 Lua 1-based 键是否存在 */
-    has(k: number): boolean;
-    /** Map 兼容：等价于 .length */
-    readonly size: number;
+declare class LuaTable<V = unknown> {
+    constructor(array?: V[], hash?: Map<unknown, V>);
+    /** 数组段：0-based，逻辑对应 Lua 键 1..n */
+    array: V[];
+    /** 哈希段：非 1..n 的任意键 */
+    hash: Map<unknown, V>;
+    /** 数组段长度，等价于 Lua `#t` */
+    readonly len: number;
+    /** 镜像 Lua `t[k]`：正整数落在数组段取 array[k-1]，否则查 hash */
+    get(k: unknown): V | undefined;
+    /** 镜像 Lua `t[k]=v`：可追加数组段（k===len+1）或写入 hash */
+    set(k: unknown, v: V): this;
+    /** 以 [key, value] 形式遍历（数组段键为 1-based），先数组段后哈希段 */
+    entries(): Array<[unknown, V]>;
+    [Symbol.iterator](): IterableIterator<[unknown, V]>;
+    /** 调试/JSON：合并为普通对象（数组段键转为 1-based 字符串键） */
+    toJSON(): Record<string, V>;
 }
 
 declare const skynetcore: {

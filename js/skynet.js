@@ -332,6 +332,13 @@
         if (v instanceof Array) {
             return "[" + v.map(x => to_display(x, depth + 1)).join(", ") + "]";
         }
+        if (typeof globalThis.LuaTable === "function" && v instanceof globalThis.LuaTable) {
+            const parts = v.array.map(x => to_display(x, depth + 1));
+            for (const [k, val] of v.hash) {
+                parts.push(to_display(k, depth + 1) + ": " + to_display(val, depth + 1));
+            }
+            return "LuaTable{ " + parts.join(", ") + " }";
+        }
         if (v instanceof Map) {
             return "{ " + Array.from(v.entries()).map(e =>
                 to_display(e[0], depth + 1) + ": " + to_display(e[1], depth + 1)).join(", ") + " }";
