@@ -56,6 +56,8 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 `PTYPE_TAG_DONTCOPY`，含于本次变更）——修复前 send 按载荷全量泄漏，
 2026-09-19 旧基线的内存数据（RSS 峰值 1025.5MB 及「1.4MB/服务」归因）已作废。
 `cl_*_pipe` 三行为同日 repeat 3 补测（同机同时段，与串行行同口径）。
+socket RSS 行为同日接收缓冲所有权修复后的 repeat 3 补测；吞吐复测仍为
+0.99/0.99/1.05（64/4096/65536B，SkyJS/Lua），与下表原基线结论一致。
 
 | case | n | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|---|
@@ -91,7 +93,7 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 |---|---|---|
 | bench 主服务框架记账（结束态） | 0.8 MB | 4.2 MB |
 | core 阶段进程 RSS 峰值（含 500 常驻同语言 echo 服务） | 235.3 MB（3 轮 58..241） | 270.3 MB（268..284） |
-| socket 服务端 RSS 峰值（65536B echo，约 15s） | ~900 MB | ~35 MB |
+| socket 服务端 RSS 峰值（65536B echo，约 15s） | 42.8 MB（29.0..47.0） | 32.2 MB（30.3..44.0） |
 
 ## 解读
 
@@ -126,10 +128,18 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
      context（-43%，破坏 per-service memlimit/SIGNAL 隔离语义，需立项）、
      minimal context 白名单（现实集 -6% 堆）、socket/cluster 库按需加载
      （几十 KB/服务）。
-   - **socket 大包是当前明确的内存优化候选**：65536B echo 时 JS 服务端 RSS
-     ~900MB vs lua ~35MB——socket 桥每条数据事件跨层产生多次 64KB 级拷贝
-     （JS 字符串解码 + write 编码 + C 侧复制），高速率下分配器留存放大
-     （与 core 大包同机理，但速率 × 常驻时长更极端）。
+   - **socket 大包内存问题已修复（2026-09-20，接收缓冲所有权）**：旧数据
+     65536B echo 时 JS 服务端 RSS ~900MB vs lua ~35MB，并非此前判断的「多次
+     拷贝 + 分配器高水位」，而是 `PTYPE_SOCKET DATA` 的 `sm->buffer` 泄漏。
+     skynet socket 线程为每条 DATA 单独 `MALLOC` 接收缓冲，消息派发只释放
+     `skynet_socket_message` 外壳，接收服务必须处理内部 `sm->buffer` 的所有权；
+     原 `snjs.c worker_cb` 在 `JS_NewStringLen` 拷贝后未释放，`skyclusterd` 在
+     `conn_data` 拷贝后也未释放。两处补 `skynet_free` 后 repeat 3 复测：64B
+     13.8 vs 14.1MB、4096B 17.5 vs 17.8MB、65536B 42.8 vs 32.2MB（SkyJS vs
+     lua，中位数；SkyJS 64KB 三轮 29.0..47.0MB），已从数量级差距收敛到同级。
+     RSS 与旧用例累计接收字节成正比（64KB×10000≈640MB）也反证了泄漏归因。
+     因二进制 ArrayBuffer 路径同样必须释放该 C 缓冲，单纯消除 UTF-8 编解码
+     对 RSS 无可测收益，不再作为内存优化方向。
    - RSS 轮次波动大（skyjs 58..241MB）来自 macOS 内存压缩时机，对比看
      中位数与多轮，勿用单轮。
 8. **cluster 小包 RTT 被 TCP Nagle 绑死**：~300-434 msg/s（2.9-4ms/次）与

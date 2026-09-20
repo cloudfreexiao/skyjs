@@ -46,8 +46,15 @@
   剩余压缩空间已量化但均为低优先级:共享 runtime 多
   context(-43% 但破坏 per-service memlimit/SIGNAL 隔离,需立项)、minimal
   context 白名单(现实集 -6% 堆)、socket/cluster 库按需加载(几十 KB/服务)。
-  另:socket 阶段 64KB 包 JS 服务端 RSS ~900MB vs lua ~35MB(拷贝放大 +
-  分配器留存),是当前明确的内存优化候选,见 bench.md 解读第 7 条。
+  **socket 64KB RSS 问题已解决(2026-09-20,接收缓冲所有权修复)**:旧数据
+  ~900MB vs lua ~35MB 并非「拷贝放大 + 分配器留存」,而是 snjs 与
+  skyclusterd 拷贝 `PTYPE_SOCKET DATA` 后未释放由接收服务拥有的
+  `sm->buffer`,导致每条 TCP DATA 按包长泄漏。两处补 `skynet_free` 后 repeat
+  3 中位数:64B 13.8 vs 14.1MB、4KB 17.5 vs 17.8MB、64KB 42.8 vs
+  32.2MB(SkyJS vs lua),吞吐比 0.99/0.99/1.05,内存已从数量级差距收敛到
+  同级。单纯 ArrayBuffer 二进制路径对 RSS 无可测收益(同样受该所有权泄漏
+  支配),不作为内存优化落地;后续 per-connection binary 仅按正确性/API 能力
+  立项。详见 bench.md 解读第 7 条。
 
 ## 功能增强(按优先级)
 
@@ -118,6 +125,13 @@
    遗留优化候选:JS 服务常驻内存(runtime 基线见「平台与稳定性」节)、seri
    大表场景的契约变更评估。pipelined cluster 压测场景已补(见 bench.md),
    双侧 nodelay 的评估可基于 cl_pipe 数据另议。
+10. **socket 接收缓冲所有权泄漏已修复**(2026-09-20):skynet socket DATA 的
+    `sm->buffer` 是接收服务拥有的独立 `skynet_malloc` 块,框架只释放外层
+    `skynet_socket_message`;snjs 在 `JS_NewStringLen` 后、skyclusterd 在
+    `conn_data` 后均曾漏掉释放。两处补 `skynet_free` 并通过 make test +
+    interop。socket repeat 3 复测 64KB RSS 从 ~900MB 降至 42.8MB(lua
+    32.2MB),吞吐保持 1.05x;4KB/64B 内存与 lua 基本相同。该结论同时订正
+    先前「拷贝放大 + 分配器高水位」的错误归因。
 
 ## 已知限制
 

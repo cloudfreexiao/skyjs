@@ -484,8 +484,12 @@ worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t 
 	// stack-overflow check is measured against THIS thread's stack
 	JS_UpdateStackTop(l->rt);
 	if (type == PTYPE_SOCKET) {
-		// skynet_socket_message: {type, id, ud, buffer}; buffer points into the
-		// socket thread's rx buffer (DATA) or is NULL with text at sm+1 (padding)
+		// skynet_socket_message: {type, id, ud, buffer}; for DATA/UDP buffer is a
+		// fresh skynet_malloc block OWNED by this service (forward_message_tcp
+		// MALLOCs it; skynet_server only frees the sm struct, never sm->buffer),
+		// so we must skynet_free it after copying -- same ownership contract as
+		// lua socket.lua's driver.push. Control events (padding=true) carry text
+		// at sm+1 inside the sm allocation and have buffer == NULL.
 		struct skynet_socket_message *sm = (struct skynet_socket_message *)msg;
 		payload = JS_NewObject(l->jsc);
 		JS_SetPropertyStr(l->jsc, payload, "type", JS_NewInt32(l->jsc, sm->type));
@@ -493,6 +497,8 @@ worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t 
 		JS_SetPropertyStr(l->jsc, payload, "ud", JS_NewInt32(l->jsc, sm->ud));
 		if (sm->buffer != NULL) {
 			JS_SetPropertyStr(l->jsc, payload, "data", JS_NewStringLen(l->jsc, sm->buffer, sm->ud));
+			skynet_free(sm->buffer);
+			sm->buffer = NULL;
 		} else if (sz > sizeof(*sm)) {
 			JS_SetPropertyStr(l->jsc, payload, "data", JS_NewString(l->jsc, (const char *)(sm + 1)));
 		} else {

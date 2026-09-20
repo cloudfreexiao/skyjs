@@ -68,6 +68,13 @@ RESPONSE/ERROR 回包与 Promise 排空。
   接收方 dispatch 后释放）。不带该 tag 时内核会**复制**消息且原缓冲仍归
   调用方——漏 free 即按载荷全量泄漏（js_send 与 cluster 请求转发的既有
   教训）。新增 C 侧发送点二选一：带 tag 移交，或 send 后自行 free。
+- **socket 接收缓冲所有权**：`PTYPE_SOCKET` 的 DATA/UDP 事件中，外层
+  `skynet_socket_message` 与内部 `sm->buffer` 是两块独立分配；框架在 C 服务
+  callback 返回 0 后只释放外层 `msg->data`，**内部 `sm->buffer` 归接收服务**。
+  拷贝到 JS / 自有 rx buffer 后必须 `skynet_free(sm->buffer)`；若做 C 层链式
+  socketbuffer，则由 push 接管并在 pop/clear 时释放。CONNECT/ACCEPT/ERROR 等
+  padding 控制事件 `sm->buffer == NULL`，文本位于 `sm+1` 随外层一并释放。
+  漏掉该规则会按累计接收字节全量泄漏（snjs socket / skyclusterd 的既有教训）。
 - 底层 `TIMEOUT` 命令单位是 **centisecond(10ms)**；`skynet.sleep(ms)` 已做换算。
 - `snjs.so` 静态编入 quickjs（`-fvisibility=hidden`），仅导出 `snjs_*` 四个 ABI 符号
   （dlopen 为 RTLD_GLOBAL，防符号冲突）。

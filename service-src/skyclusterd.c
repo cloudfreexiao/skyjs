@@ -972,6 +972,11 @@ clusterd_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_
 			if (c) {
 				conn_data(cd, c, (const uint8_t *)sm->buffer, (size_t)sm->ud);
 			}
+			// sm->buffer is a fresh skynet_malloc block owned by this service
+			// (skynet_server frees only the sm struct); conn_data already copied
+			// the bytes into c->rx, so release it here to avoid leaking every
+			// inbound DATA buffer (same ownership contract as lua socket.lua).
+			skynet_free((void *)sm->buffer);
 			break;
 		}
 		case SKYNET_SOCKET_TYPE_CLOSE:
