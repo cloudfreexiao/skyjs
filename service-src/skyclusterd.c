@@ -472,12 +472,15 @@ dispatch_request(struct clusterd *cd, struct conn *c, int is_push, uint32_t sess
 	pr->remote_session = session;
 	void *copy = skynet_malloc(psz);
 	memcpy(copy, payload, psz);
+	// both branches transfer `copy` ownership to the kernel
+	// (PTYPE_TAG_DONTCOPY): the receiver's dispatch frees it. Without the
+	// tag skynet_send would copy and this block would leak on the request
+	// path (the push branch used to free explicitly, same class of bug).
 	if (is_push) {
-		skynet_send(cd->ctx, 0, handle, PTYPE_RESERVED_LUA, 0, copy, psz);
-		skynet_free(copy);
+		skynet_send(cd->ctx, 0, handle, PTYPE_RESERVED_LUA | PTYPE_TAG_DONTCOPY, 0, copy, psz);
 		precv_release(pr);
 	} else {
-		skynet_send(cd->ctx, 0, handle, PTYPE_RESERVED_LUA, local_session, copy, psz);
+		skynet_send(cd->ctx, 0, handle, PTYPE_RESERVED_LUA | PTYPE_TAG_DONTCOPY, local_session, copy, psz);
 	}
 }
 

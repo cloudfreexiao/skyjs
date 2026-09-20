@@ -249,7 +249,12 @@ js_send(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
 		}
 		JS_FreeCString(ctx, msg);
 	}
-	int r = skynet_send(l->ctx, 0, (uint32_t)dest, type, session, buf, sz);
+	// `buf` is a fresh skynet_malloc block: hand its ownership to the kernel
+	// via PTYPE_TAG_DONTCOPY (same contract as lsend's lightuserdata path).
+	// Without the tag skynet_send copies the payload and the caller keeps
+	// ownership of `buf` -- omitting the free here used to leak the full
+	// message size on every JS-originated send.
+	int r = skynet_send(l->ctx, 0, (uint32_t)dest, type | PTYPE_TAG_DONTCOPY, session, buf, sz);
 	return JS_NewInt32(ctx, r);
 }
 

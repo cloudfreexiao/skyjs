@@ -28,9 +28,16 @@
 - **长跑与统计对账**:计划中的 30 分钟长跑、memstat 与 RSS 对账尚未执行;
   quickjs 内部缓存可能存在 memstat 盲区,误差量级待确认。`make bench` 的
   mem_report 场景(RSS 采样 + 框架内存记账)已可作为对账起点。
-- **JS 服务常驻内存偏重**:对比压测显示 500 个常驻 snjs 服务的节点 RSS 峰值
-  约 1GB,同规模 snlua 节点约 360MB(QuickJS runtime 基线约 1.4MB/服务,
-  见 bench.md「解读」第 7 条);后续可探索 runtime 池化或精简运行时库加载。
+- **JS 服务常驻内存（2026-09-20 归因修正）**:旧基线「1.4MB/服务、RSS 峰值
+  1GB vs 360MB」是 js_send 泄漏造成的误归因——泄漏修复后的正式基线
+  (repeat 3 中位数)core RSS 峰值 235.3MB vs 270.3MB;真实单服务基线
+  snjs ~0.25MB vs snlua echo ~0.054MB
+  (~4.6x,QuickJS runtime 堆 0.148MB),详见 bench.md「解读」第 7 条。
+  剩余压缩空间已量化但均为低优先级:共享 runtime 多
+  context(-43% 但破坏 per-service memlimit/SIGNAL 隔离,需立项)、minimal
+  context 白名单(现实集 -6% 堆)、socket/cluster 库按需加载(几十 KB/服务)。
+  另:socket 阶段 64KB 包 JS 服务端 RSS ~900MB vs lua ~35MB(拷贝放大 +
+  分配器留存),是当前明确的内存优化候选,见 bench.md 解读第 7 条。
 
 ## 功能增强(按优先级)
 
@@ -79,8 +86,7 @@
 8. **对比压测套件已建立**(2026-09):`make bench`(tools/run_bench.js)三层
    对比 SkyJS vs 原版 skynet(core:核心消息面/cluster:双向含混合互通/
    socket:TCP echo),基线数据与解读见 [bench.md](bench.md)。
-9. **性能优化首轮已完成**(2026-09,均经同机同时段 A/B 对照确认,详见
-   bench.md「优化记录」):
+9. **性能优化首轮已完成**(2026-09,均经同机同时段 A/B 对照确认):
    a. **js-seri 写缓冲重构**:连续几何增长缓冲(记账分配器)+ ArrayBuffer
       零拷贝交接,`sp_s64k` 净收益 ~4x;unpack 改平铺数组 + 单次 JS helper
       建 Map。**边界发现:quickjs 的 Map 为链表实现,Map.set O(n) 查重使
@@ -94,7 +100,7 @@
       字节码(snjs 对默认路径走 JS_ReadObject+JS_EvalFunction,非默认
       路径/版本偏离回退源码),`startup_self` 净收益 ~1.9x(对 snlua
       达 4.76x,~70µs/个)。RSS 峰值无明显变化(主要来自 runtime 基线)。
-   遗留优化候选:JS 服务常驻内存(runtime 基线 ~1.4MB/个)、pipelined
+   遗留优化候选:JS 服务常驻内存(runtime 基线见「平台与稳定性」节)、pipelined
    cluster 场景、seri 大表场景的契约变更评估。
 
 ## 已知限制

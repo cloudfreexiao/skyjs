@@ -49,75 +49,96 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 
 ## 基线数据
 
-2026-09-19，Apple M4 Pro，macOS 26.6.2，commit 3fe7704，repeat 3（中位数）。
+2026-09-20，Apple M4 Pro，macOS 26.6.2，commit 4991a23，repeat 3（中位数）。
 原始数据在 `build/bench/raw_*.json`，报告在 `build/bench/report.md`。
+本基线已包含发送路径所有权修复（js_send / cluster 请求转发补
+`PTYPE_TAG_DONTCOPY`，含于本次变更）——修复前 send 按载荷全量泄漏，
+2026-09-19 旧基线的内存数据（RSS 峰值 1025.5MB 及「1.4MB/服务」归因）已作废。
 
 | case | n | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|---|
-| rt_text_c | 50000 | 416,667 | 344,590 | 1.21 |
-| rt_text_self | 50000 | 359,712 | 344,828 | 1.04 |
-| rt_text_s256 | 50000 | 349,650 | 334,225 | 1.05 |
-| rt_text_s4k | 50000 | 241,546 | 282,486 | 0.86 |
-| rt_text_s64k | 10000 | 38,760 | 91,075 | 0.43 |
-| rt_lua_self | 20000 | 101,010 | 171,086 | 0.59 |
-| send_self | 500000 | 1,718,213 | 661,201 | 2.60 |
-| conc_self_k1 | 100000 | 359,712 | 334,225 | 1.08 |
-| conc_self_k8 | 100000 | 349,650 | 342,818 | 1.02 |
-| sp_t10 | 100000 | 319,489 | 720,461 | 0.44 |
-| sp_t1000 | 5000 | 530.1 | 23,958 | 0.02 |
-| sp_s64k | 2000 | 40,000 | 42,373 | 0.94 |
-| startup_c | 500 | 166,667 | 1,973.9 | 84.43 |
-| startup_self | 500 | 3,401.4 | 1,909.1 | 1.78 |
-| timer_wake | 50000 | 347,222 | 373,972 | 0.93 |
-| cl_jsjs_100 | 5000 | 248.7 | — | — |
-| cl_jsjs_40k | 1000 | 312.6 | — | — |
-| cl_lualua_100 | 5000 | — | 292.2 | — |
-| cl_lualua_40k | 1000 | — | 369.2 | — |
-| cl_mixed_100 | 5000 | 256.2 | 265.3 | 0.97 |
-| cl_mixed_40k | 1000 | 109.2 | 372.1 | 0.29 |
-| sock_64 | 100000 | 71,957 | 73,037 | 0.99 |
-| sock_4096 | 50000 | 62,859 | 62,283 | 1.01 |
-| sock_65536 | 10000 | 5,877 | 5,516 | 1.07 |
+| rt_text_c | 50000 | 609,756 | 525,210 | 1.16 |
+| rt_text_self | 50000 | 537,634 | 531,915 | 1.01 |
+| rt_text_s256 | 50000 | 520,833 | 511,247 | 1.02 |
+| rt_text_s4k | 50000 | 423,729 | 432,900 | 0.98 |
+| rt_text_s64k | 10000 | 81,301 | 140,845 | 0.58 |
+| rt_lua_self | 20000 | 142,857 | 262,467 | 0.54 |
+| send_self | 500000 | 2,631,579 | 1,019,160 | 2.58 |
+| conc_self_k1 | 100000 | 529,101 | 510,465 | 1.04 |
+| conc_self_k8 | 100000 | 523,560 | 517,598 | 1.01 |
+| sp_t10 | 100000 | 440,529 | 1,077,586 | 0.41 |
+| sp_t1000 | 5000 | 844.5 | 36,049 | 0.02 |
+| sp_s64k | 2000 | 250,000 | 62,305 | 4.01 |
+| startup_c | 500 | 500,000 | 3,119.2 | 160.30 |
+| startup_self | 500 | 13,514 | 2,694 | 5.02 |
+| timer_wake | 50000 | 495,050 | 531,350 | 0.93 |
+| cl_jsjs_100 | 5000 | 300 | — | — |
+| cl_jsjs_40k | 1000 | 338.6 | — | — |
+| cl_lualua_100 | 5000 | — | 344.7 | — |
+| cl_lualua_40k | 1000 | — | 433.5 | — |
+| cl_mixed_100 | 5000 | 312.5 | 320.2 | 0.98 |
+| cl_mixed_40k | 1000 | 389.4 | 386.3 | 1.01 |
+| sock_64 | 100000 | 131,988 | 133,194 | 0.99 |
+| sock_4096 | 50000 | 94,205 | 98,412 | 0.96 |
+| sock_65536 | 10000 | 8,428 | 8,242 | 1.02 |
 
 | 内存 | skyjs | stock lua |
 |---|---|---|
-| bench 主服务框架记账 | 0.9 MB | 4.2 MB |
-| 进程 RSS 峰值（含 500 常驻同语言 echo 服务） | 1,025.5 MB | 359.2 MB |
+| bench 主服务框架记账（结束态） | 0.8 MB | 4.2 MB |
+| core 阶段进程 RSS 峰值（含 500 常驻同语言 echo 服务） | 235.3 MB（3 轮 58..241） | 270.3 MB（268..284） |
+| socket 服务端 RSS 峰值（65536B echo，约 15s） | ~900 MB | ~35 MB |
 
 ## 解读
 
-1. **内核基线校准通过**：`rt_text_c` 1.21x（同内核，差异来自调用方语言层的
+1. **内核基线校准通过**：`rt_text_c` 1.16x（同内核，差异来自调用方语言层的
    每次调用开销：JS 的 promise 挂起/恢复略便宜于 Lua 的协程 yield/resume）。
-2. **同语言全栈 RTT 持平**（`rt_text_self` 1.04，`conc_*` 1.02-1.08，
+2. **同语言全栈 RTT 持平**（`rt_text_self` 1.01、`conc_*` 1.01-1.04、
    `timer_wake` 0.93）：一问一答路径上两套语言层成本相当。
-3. **大包体 JS 变慢**（`rt_text_s64k` 0.43）：JS 侧跨层要 UTF-8 解码（收）+
-   再编码（发）+ QuickJS 字符串/ArrayBuffer 拷贝；Lua 只做一次 tostring 拷贝。
-4. **seri 是 JS 侧最大短板**：wire 上 0.59（`rt_lua_self`）；纯序列化
-   `sp_t10` 0.44；1000 元素数组 `sp_t1000` 0.02 —— 根因是 quickjs 的 Map 为
-   链表实现（`map_add` O(n) 查重），1000 次 set 即 O(n²)（实测：纯 JS 建
-   100 项 Map 15µs，1000 项 1178µs）；lua table 是哈希表 O(1)。在
-   「table→Map」契约 + 不改引擎的约束下此差距不可消除（见「优化记录」）。
-5. **fire-and-forget JS 快 2.6x**（`send_self`）：回包被抑制后瓶颈在 echo 端
+3. **大包体 JS 变慢集中在 64KB**（`rt_text_s64k` 0.58；4KB 已持平 0.98）：
+   JS 侧跨层要 UTF-8 解码（收）+ 再编码（发）+ QuickJS 字符串/ArrayBuffer
+   拷贝；Lua 只做一次 tostring 拷贝。包体放大后拷贝次数差异才开始主导。
+4. **seri 是 JS 侧最大短板**：wire 上 0.54（`rt_lua_self`）；纯序列化
+   `sp_t10` 0.41；1000 元素数组 `sp_t1000` 0.02 —— 根因是 quickjs 的 Map 为
+   链表实现（`map_add` O(n) 查重），1000 次 set 即 O(n²)。在
+   「table→Map」契约 + 不改引擎的约束下此差距不可消除；突破需契约变更
+   （数组型 table 解为 Array）或引擎 patch，均需另行立项评估。
+5. **fire-and-forget JS 快 2.58x**（`send_self`）：回包被抑制后瓶颈在 echo 端
    每条消息的派发成本——Lua 每条消息起一个 dispatch 协程（skynet.lua 模型），
    JS 只是一次普通函数调用。
-6. **服务创建**：`startup_c` 84x 是**结构差异**——skyjs 直接 LAUNCH 命令建 C
-   服务（~4µs），原版经 launcher 服务一跳 RTT（~0.5ms），对比的是"各自框架
-   的惯用创建路径"。`startup_self` 是实打实的 VM 创建对比（字节码化后
-   snjs ~70µs/个，对 snlua+launcher 4.76x，见「优化记录」）。
-7. **常驻内存 JS 显著更重**：RSS 峰值 1026MB vs 359MB，主要来自 500 个常驻
-   snjs 服务——每个 QuickJS runtime（含 atom 表、已加载运行时库）约 1.4MB，
-   而 snlua echo 服务约 0.2MB。单服务粒度上 JS 服务内存 ≈ Lua 的 5-7 倍。
-8. **cluster 小包 RTT 被 TCP Nagle 绑死**：~250-345 msg/s（2.9-4ms/次）与实现
-   无关——两侧的**响应方向**都不设 TCP_NODELAY（原版 clusteragent 裸
+6. **服务创建**：`startup_c` 160x 是**结构差异**——skyjs 直接 LAUNCH 命令建 C
+   服务（~4µs），原版经 launcher 服务一跳 RTT（min..max 250000..500000 受
+   计时粒度粗化）。`startup_self` 5.02x：snjs ~74µs/个（字节码化，见
+   TODO.md）vs snlua 经 launcher ~370µs/个。
+7. **内存面整体持平、略优**：
+   - 框架记账 0.8MB vs 4.2MB（结束态；JS 为 QuickJS 堆记账，Lua 为 gc count）。
+   - core RSS 峰值 235.3 vs 270.3MB。主要构成（单用例专用节点分解，
+     tools/rss_trim*.sh）：skyjs = 500 常驻 snjs ~127MB（0.25MB/个）+
+     timer_wake 5 万挂起 Promise ~70MB + 基线 ~14MB，余下为大包 RTT 的
+     分配器高水位；lua = 50k timer 协程 ~90MB + 500 snlua ~27MB +
+     基线 ~14MB，余下同为各场景 churn 高水位。
+     单服务基线 snjs ~0.25MB vs snlua echo ~0.054MB（~4.6x，QuickJS 堆
+     0.148MB/个）。剩余压缩空间已量化但均低优先级：共享 runtime 多
+     context（-43%，破坏 per-service memlimit/SIGNAL 隔离语义，需立项）、
+     minimal context 白名单（现实集 -6% 堆）、socket/cluster 库按需加载
+     （几十 KB/服务）。
+   - **socket 大包是当前明确的内存优化候选**：65536B echo 时 JS 服务端 RSS
+     ~900MB vs lua ~35MB——socket 桥每条数据事件跨层产生多次 64KB 级拷贝
+     （JS 字符串解码 + write 编码 + C 侧复制），高速率下分配器留存放大
+     （与 core 大包同机理，但速率 × 常驻时长更极端）。
+   - RSS 轮次波动大（skyjs 58..241MB）来自 macOS 内存压缩时机，对比看
+     中位数与多轮，勿用单轮。
+8. **cluster 小包 RTT 被 TCP Nagle 绑死**：~300-434 msg/s（2.9-4ms/次）与
+   实现无关——两侧的**响应方向**都不设 TCP_NODELAY（原版 clusteragent 裸
    socket.write；skyclusterd accepted socket 同样），串行一问一答时响应小段
-   被 Nagle 拖住。40KB 大包满段绕过 Nagle，双侧同口径（~2.7-3.7ms）。
-   发送方向已对齐原版 clustersender.lua 的 `nodelay = true`（见 TODO.md）；
-   对齐前 jsjs_40k 曾达 1382 msg/s（Nagle 合并效应），属与原版的实现偏差。
+   被 Nagle 拖住（skyjs 同语言 300 vs lua 344.7，同在 Nagle 平台内）。
+   40KB 大包满段绕过 Nagle，双侧同口径。发送方向已对齐
+   原版 clustersender.lua 的 `nodelay = true`；要测纯实现开销需补
+   pipelined（多在途请求）cluster 场景。
 9. **cluster RTT 与 payload 大小/分帧无关**（payload 扫描实测：100B、8KB、
    20KB 单帧与 40KB/80KB 分帧全部落在同一个 ~3-4ms 平台）——分帧实现无差异，
-   一切被 Nagle 平台主导。注意 `cl_*_40k` 各轮方差极大（如 lualua 258..1241），
+   一切被 Nagle 平台主导。注意 `cl_*_40k` 各轮方差极大（如 jsjs 300..949），
    **单轮对比不可靠**，必须多轮取中位数。
-10. **socket 吞吐持平**（0.99-1.07）：echo 路径由共享内核 socket 机制主导，
+10. **socket 吞吐持平**（0.96-1.02）：echo 路径由共享内核 socket 机制主导，
     JS socket 桥（字符串跨界）与 lualib socket（阻塞读）成本相当。
 
 ## 已知限制
@@ -126,30 +147,10 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
   与多轮中位数；换机器重跑即得新基线。
 - **机器状态漂移可达 1.5x**：跨时段的绝对值对比无效（lua 参照列同步涨跌），
   必须同机同时段 A/B 或用 lua 列归一化。
+- RSS 采样粒度 250ms（`ps` 轮询），且受 macOS 内存压缩影响轮次间波动大
+  （见解读第 7 条）；内存归因用单用例专用节点工具链
+  （test/service/bench_main_trim.js、test/bench_lua/main_trim.lua +
+  tools/rss_trim*.sh）。
 - cluster 小包串行 RTT 被 Nagle 主导，实现差异被掩盖；要测纯实现开销需补
   pipelined（多在途请求）cluster 场景。
 - 仅 macOS/arm64 实测；Linux（epoll 路径）未验证。
-- RSS 采样粒度 250ms（`ps` 轮询），瞬时尖峰可能低估。
-
-## 优化记录（2026-09-19，基于本基线）
-
-以下均为**同机同时段 A/B 对照**（lua 参照列归一化）后确认的净变化：
-
-| 优化项 | case | before | after | 净收益 |
-|---|---|---|---|---|
-| js-seri 连续写缓冲 + AB 零拷贝 | `sp_s64k` | 0.94（64KB 字符串 pack/unpack，旧路径块链 + 2 次全量拷贝） | 4.05 | **~4x** |
-| 同上（大消息路径） | `rt_text_s4k/s64k` | 0.86/0.43 | 0.85/0.41 | 持平（text 协议不走 seri） |
-| 运行时库字节码化 | `startup_self` | 1.50（~208µs/个） | 4.76（~70µs/个） | **~1.9x** |
-| unpack 平铺数组 + buildmap | `sp_t10/sp_t1000` | 0.44/0.02 | 0.41/0.02 | 持平——被 Map O(n²) 主导 |
-
-定性结论：
-
-1. **quickjs 的 Map 是链表实现**，`Map.set` O(n) 查重导致大表 unpack 为
-   O(n²)（纯 JS 复现：100 项 15µs → 1000 项 1178µs）。在「table→Map」契约与
-   不改 3rd/ 的双重约束下 `sp_t1000` 类场景无优化空间；若未来要突破，路径是
-   契约变更（数组型 table 解为 Array）或引擎 patch，均需另行立项评估。
-2. **mixed 40KB skyjs→lua 方向的 109 msg/s 为运行瞬态**，复测 535 msg/s
-   （与 lua→lua 同量级）；payload 扫描证明 RTT 与包大小/分帧无关。
-3. 运行时库字节码由 `make` 构建期生成（qjsc，strip 源码保留行号），snjs 对
-   默认路径走 `JS_ReadObject` + `JS_EvalFunction`，非默认路径/字节码损坏时
-   回退源码 eval；源码移除后场景照常通过（证明字节码真实生效）。

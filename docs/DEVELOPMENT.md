@@ -60,6 +60,11 @@ RESPONSE/ERROR 回包与 Promise 排空。
   **不要引入纯 JS 定时器/微任务挂起导致 worker 线程无法归还的机制。**
 - 消息跨层类型契约（text=字符串 / lua 与响应=ArrayBuffer / pack-unpack 类型映射）
   固化于下节「二进制消息协议约定」，修改边界实现前先核对该节。
+- 发送缓冲区所有权：C 侧 `skynetcore.send`/`skynetcore.response` 的
+  skynet_malloc 缓冲一律以 `PTYPE_TAG_DONTCOPY` 发出（所有权移交内核，由
+  接收方 dispatch 后释放）。不带该 tag 时内核会**复制**消息且原缓冲仍归
+  调用方——漏 free 即按载荷全量泄漏（js_send 与 cluster 请求转发的既有
+  教训）。新增 C 侧发送点二选一：带 tag 移交，或 send 后自行 free。
 - 底层 `TIMEOUT` 命令单位是 **centisecond(10ms)**；`skynet.sleep(ms)` 已做换算。
 - `snjs.so` 静态编入 quickjs（`-fvisibility=hidden`），仅导出 `snjs_*` 四个 ABI 符号
   （dlopen 为 RTLD_GLOBAL，防符号冲突）。
