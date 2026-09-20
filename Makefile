@@ -78,22 +78,22 @@ build/%.o: platform/%.c | build
 	$(CC) $(CFLAGS) $(SKYNET_DEFINES) -I$(SKYNET_INC) -Iplatform -c $< -o $@
 
 build/qjs_%.o: 3rd/quickjs/%.c | build
-	$(CC) $(CFLAGS) -fvisibility=hidden -D_GNU_SOURCE -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -D_GNU_SOURCE -I3rd/quickjs -c $< -o $@
 
 build/snjs.o: service-src/snjs.c | build
-	$(CC) $(CFLAGS) $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 build/seri.o: service-src/js-seri.c | build
-	$(CC) $(CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 build/netpack.o: service-src/js-netpack.c | build
-	$(CC) $(CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 build/crypto.o: service-src/js-crypto.c | build
-	$(CC) $(CFLAGS) $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 build/tls.o: service-src/js-tls.c | build
-	$(CC) $(CFLAGS) $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 # host compiler used to precompile the JS runtime libraries into bytecode
 # (quickjs-libc provides the std helpers qjsc references).
@@ -118,10 +118,10 @@ build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.
 	cat build/bc_skynet.c build/bc_socket.c build/bc_crypt.c build/bc_sockethelper.c build/bc_cluster.c build/bc_gateserver.c build/bc_http.c build/bc_websocket.c > $@
 
 build/rt_bc.o: build/rt_bc.c | build
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(QJS_OBJ) | cservice
-	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $(OPENSSL_LDFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $(OPENSSL_LDFLAGS) -o $@ $^ -lm
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped
 # in 3rd/skynet's 3rd/lua (byte-exact ground truth for the seri format).
@@ -134,7 +134,7 @@ test/seri_tool: test/seri_tool.c 3rd/skynet/lualib-src/lua-seri.c $(LUA_SRC)
 
 ifeq ($(PLAT),mingw)
 COMPAT_OBJ := build/compat.o
-$(COMPAT_OBJ): $(COMPAT_MINGW_DIR)/compat.c | build
+$(COMPAT_OBJ): platform/mingw_compat.c | build
 	$(CC) $(CFLAGS) -c $< -o $@
 else
 COMPAT_OBJ :=
