@@ -8,7 +8,8 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
     fi && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc libc6-dev make git autoconf nodejs procps && \
+        gcc libc6-dev make git autoconf nodejs procps \
+        libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

@@ -19,6 +19,12 @@ jobs:
             name: macOS
           - os: ubuntu-latest
             name: Linux
+          - os: macos-latest
+            name: macOS+TLS
+            tls: openssl
+          - os: ubuntu-latest
+            name: Linux+TLS
+            tls: openssl
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
 
@@ -33,14 +39,22 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install OpenSSL (macOS)
+        if: matrix.tls == 'openssl' && runner.os == 'macOS'
+        run: brew install openssl@3 || true
+
+      - name: Install OpenSSL (Linux)
+        if: matrix.tls == 'openssl' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
       - name: Build
-        run: make
+        run: make ${{ matrix.tls == 'openssl' && 'TLS=openssl' || '' }}
 
       - name: Lint
         run: make lint
 
       - name: Test
-        run: make test
+        run: make ${{ matrix.tls == 'openssl' && 'TLS=openssl' || '' }} test
 
   # ---------- Windows: MSYS2 / MinGW-w64 ----------
   build-windows:

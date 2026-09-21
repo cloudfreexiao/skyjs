@@ -68,12 +68,18 @@ OPENSSL_CFLAGS :=
 OPENSSL_LDFLAGS :=
 TLS_OBJ :=
 ifeq ($(TLS),openssl)
-  # OpenSSL install-prefix paths are overridable (environment or command line)
-  # for non-Homebrew layouts; -DUSE_OPENSSL is always injected regardless.
-  OPENSSL_INC ?= /opt/homebrew/opt/openssl/include
-  OPENSSL_LIB ?= /opt/homebrew/opt/openssl/lib
-  OPENSSL_CFLAGS := -I$(OPENSSL_INC) -DUSE_OPENSSL
-  OPENSSL_LDFLAGS := -L$(OPENSSL_LIB) -lssl -lcrypto
+  ifeq ($(PLAT),macosx)
+    OPENSSL_INC ?= /opt/homebrew/opt/openssl/include
+    OPENSSL_LIB ?= /opt/homebrew/opt/openssl/lib
+  else
+    # Linux / others: system default paths (apt: libssl-dev puts headers in
+    # /usr/include/openssl, libs in /usr/lib/...).  Override via env or CLI
+    # if needed, e.g. OPENSSL_INC=/usr/local/include make TLS=openssl
+    OPENSSL_INC ?=
+    OPENSSL_LIB ?=
+  endif
+  OPENSSL_CFLAGS := $(if $(OPENSSL_INC),-I$(OPENSSL_INC)) -DUSE_OPENSSL
+  OPENSSL_LDFLAGS := $(if $(OPENSSL_LIB),-L$(OPENSSL_LIB)) -lssl -lcrypto
   TLS_OBJ := build/tls.o
 endif
 
@@ -176,7 +182,7 @@ build/rt_bc.o: build/rt_bc.c | build
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(IMPORT_LIB) | cservice
-	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $(OPENSSL_LDFLAGS) -o $@ $^ -lm
+	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden -o $@ $^ $(OPENSSL_LDFLAGS) -lm
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped
 # in 3rd/skynet's 3rd/lua (byte-exact ground truth for the seri format).
@@ -247,4 +253,15 @@ DURATION ?= 30
 longrun: all
 	node tools/run_longrun.js --minutes $(DURATION)
 
-.PHONY: all clean lint test interop bench longrun
+# self-signed test certs for TLS acceptance (valid 10 years, localhost + 127.0.0.1)
+test/certs/server.pem:
+	mkdir -p test/certs
+	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+		-keyout test/certs/server.key -out test/certs/server.pem \
+		-days 3650 -nodes -subj "/CN=localhost" \
+		-addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+	cp test/certs/server.pem test/certs/ca.pem
+
+test-certs: test/certs/server.pem
+
+.PHONY: all clean lint test interop bench longrun test-certs

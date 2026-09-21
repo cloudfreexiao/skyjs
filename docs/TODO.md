@@ -20,6 +20,17 @@
    （两侧共有）；pipelined 残余差距（skyjs 比 lua 高 ~23%）是唯一观察到的
    实现差异，双侧 nodelay 的取舍以 cl_pipe 数据为依据另行讨论。
 
+### TLS / HTTPS / WSS (已完成)
+
+- OpenSSL 条件编译 (`make TLS=openssl`)：macOS + Linux 均已验证
+- HTTPS client / server：已实现并通过验收
+- WSS client / server：已实现并通过验收（修复了 server 端 tls_upgrade 参数缺失）
+- hostname verification：已添加 `SSL_set1_host`
+- 自定义 CA：`ctx_set_verify` 支持可选 cafile 参数
+- Docker：Dockerfile 已添加 `libssl-dev`
+- CI：macOS+TLS / Linux+TLS 矩阵已添加
+- 测试证书：`test/certs/` 自签名 EC 证书（10 年有效期）
+
 ## 本轮结案
 
 - **C netpack + per-connection binary + gate/redirect**（2026-09）：新增

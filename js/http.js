@@ -671,18 +671,20 @@
     /**
      * Open a new connection (with optional TLS upgrade).
      */
-    async function open_connection(parsed, timeout) {
+    async function open_connection(parsed, timeout, ca_file) {
         const fd = await sockethelper.connect(
             parsed.host, parsed.port, timeout
         );
         const reader = sockethelper.reader(fd);
 
         if (parsed.protocol === "https") {
-            if (typeof sockethelper.tls_upgrade !== "function") {
+            if (!skynetcore.tls) {
                 socket.close(fd);
                 throw new Error("HTTPS requires OpenSSL build");
             }
-            await sockethelper.tls_upgrade(reader, parsed.host_header);
+            await sockethelper.tls_upgrade(
+                reader, parsed.host, false, null, null, ca_file
+            );
         }
 
         return { fd, reader };
@@ -699,10 +701,11 @@
      * Supports connection pooling with retry-on-stale.
      */
     httpc_obj.request = async function (method, hostname, url,
-        recv_header_out, header, content) {
+        recv_header_out, header, content, options) {
         const parsed = client_parse_url(hostname);
         const key = pool_key_str(parsed.host, parsed.port, parsed.protocol);
         const timeout = httpc_obj.timeout || undefined;
+        const ca_file = (options && options.ca_file) || undefined;
 
         let fd, reader, from_pool = false;
         const pooled = pool_get(key);
@@ -716,7 +719,7 @@
         // open a fresh one and retry (max 1 retry)
         for (let attempt = 0; attempt < 2; attempt++) {
             if (!from_pool || attempt > 0) {
-                const conn = await open_connection(parsed, timeout);
+                const conn = await open_connection(parsed, timeout, ca_file);
                 fd = conn.fd;
                 reader = conn.reader;
                 from_pool = false;
@@ -782,9 +785,9 @@
     /**
      * HTTP GET shorthand.
      */
-    httpc_obj.get = async function (hostname, url, recv_header_out, header) {
+    httpc_obj.get = async function (hostname, url, recv_header_out, header, options) {
         const r = await httpc_obj.request(
-            "GET", hostname, url, recv_header_out, header
+            "GET", hostname, url, recv_header_out, header, undefined, options
         );
         return { status: r.status, body: r.body };
     };
@@ -792,7 +795,7 @@
     /**
      * HTTP POST with form-encoded body.
      */
-    httpc_obj.post = async function (hostname, url, form, recv_header_out) {
+    httpc_obj.post = async function (hostname, url, form, recv_header_out, options) {
         const hdr = {
             "content-type": "application/x-www-form-urlencoded",
         };
@@ -805,7 +808,7 @@
         }
         const body = parts.join("&");
         const r = await httpc_obj.request(
-            "POST", hostname, url, recv_header_out, hdr, body
+            "POST", hostname, url, recv_header_out, hdr, body, options
         );
         return { status: r.status, body: r.body };
     };
@@ -814,10 +817,11 @@
      * HTTP HEAD — returns only the status code.
      */
     httpc_obj.head = async function (hostname, url, recv_header_out,
-        header) {
+        header, options) {
         const parsed = client_parse_url(hostname);
         const key = pool_key_str(parsed.host, parsed.port, parsed.protocol);
         const timeout = httpc_obj.timeout || undefined;
+        const ca_file = (options && options.ca_file) || undefined;
 
         for (let attempt = 0; attempt < 2; attempt++) {
             let fd, reader;
@@ -826,7 +830,7 @@
                 fd = pooled.fd;
                 reader = pooled.reader;
             } else {
-                const conn = await open_connection(parsed, timeout);
+                const conn = await open_connection(parsed, timeout, ca_file);
                 fd = conn.fd;
                 reader = conn.reader;
             }

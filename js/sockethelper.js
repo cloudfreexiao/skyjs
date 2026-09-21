@@ -298,7 +298,7 @@
      * @param {string} [keyfile] - PEM private key (server mode)
      * @returns {Promise<void>}
      */
-    async function tls_upgrade(reader, hostname, is_server, certfile, keyfile) {
+    async function tls_upgrade(reader, hostname, is_server, certfile, keyfile, ca_file) {
         const tls = skynetcore.tls;
         if (!tls) throw new Error("TLS requires OpenSSL build (make TLS=openssl)");
 
@@ -308,7 +308,7 @@
             tls.ctx_set_cert(ctx, certfile, keyfile);
         }
         if (!is_server) {
-            tls.ctx_set_verify(ctx);
+            tls.ctx_set_verify(ctx, ca_file || undefined);
         }
 
         const method = is_server ? "server" : "client";
@@ -394,9 +394,9 @@
         reader(fd) {
             const r = new BufferedReader(fd);
             socket.start(fd,
-                r._on_data.bind(r),
-                r._on_close.bind(r),
-                r._on_error.bind(r),
+                (data) => r._on_data(data),
+                () => r._on_close(),
+                (_id, msg) => r._on_error(msg),
                 { binary: true }
             );
             socket.resume(fd);

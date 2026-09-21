@@ -537,13 +537,22 @@
         }
 
         if (protocol === "wss") {
-            if (typeof sockethelper.tls_upgrade !== "function") {
+            if (!skynetcore.tls) {
                 socket.close(fd);
                 throw new Error(
                     "WSS requires OpenSSL build (make TLS=openssl)"
                 );
             }
-            await sockethelper.tls_upgrade(reader);
+            const tls_opts = (options && options.tls) || {};
+            if (!tls_opts.certfile || !tls_opts.keyfile) {
+                socket.close(fd);
+                throw new Error(
+                    "WSS server requires options.tls.certfile and options.tls.keyfile"
+                );
+            }
+            await sockethelper.tls_upgrade(
+                reader, null, true, tls_opts.certfile, tls_opts.keyfile
+            );
         }
 
         const ws = {
@@ -585,7 +594,7 @@
      *   timeout: connect timeout in centiseconds (optional)
      * Returns Promise<id> (the fd).
      */
-    ws_api.connect = async function (url, header, timeout) {
+    ws_api.connect = async function (url, header, timeout, options) {
         const parsed = parse_ws_url(url);
 
         const fd = await sockethelper.connect(
@@ -594,13 +603,16 @@
         const reader = sockethelper.reader(fd);
 
         if (parsed.protocol === "wss") {
-            if (typeof sockethelper.tls_upgrade !== "function") {
+            if (!skynetcore.tls) {
                 socket.close(fd);
                 throw new Error(
                     "WSS requires OpenSSL build (make TLS=openssl)"
                 );
             }
-            await sockethelper.tls_upgrade(reader, parsed.hostname);
+            const ca = (options && options.ca_file) || undefined;
+            await sockethelper.tls_upgrade(
+                reader, parsed.hostname, false, null, null, ca
+            );
         }
 
         const ws = {

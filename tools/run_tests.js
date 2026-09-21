@@ -45,6 +45,7 @@ const NEVER = [
     "CRYPT FAIL",
     "HTTP FAIL",
     "WS FAIL",
+    "TLS FAIL",
     "dispatch rejected",
 ];
 
@@ -85,6 +86,8 @@ const SUITE = [
         must: ["HTTP ALL OK"] },
     { name: "ws", config: "test/config_ws.json", timeout_ms: 20000,
         must: ["WS ALL OK"] },
+    { name: "tls", config: "test/config_tls.json", timeout_ms: 20000,
+        must: ["TLS ALL OK"] },
     { name: "bench", config: "test/config_bench.json", timeout_ms: 60000,
         must_re: [/BENCH N=20000 c_echo=\d+ msg\/s j_echo=\d+ msg\/s/] },
 ];

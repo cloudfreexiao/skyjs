@@ -193,7 +193,15 @@ static JSValue js_tls_ctx_set_verify(JSContext *ctx, JSValueConst tv, int argc, 
 	struct ssl_ctx_ud *ud = JS_GetOpaque(argv[0], js_ssl_ctx_class_id);
 	if (!ud || !ud->ctx) return JS_ThrowTypeError(ctx, "tls.ctx_set_verify: invalid ctx");
 
-	SSL_CTX_set_default_verify_paths(ud->ctx);
+	if (argc > 1 && JS_IsString(argv[1])) {
+		const char *cafile = JS_ToCString(ctx, argv[1]);
+		if (cafile) {
+			SSL_CTX_load_verify_locations(ud->ctx, cafile, NULL);
+			JS_FreeCString(ctx, cafile);
+		}
+	} else {
+		SSL_CTX_set_default_verify_paths(ud->ctx);
+	}
 	SSL_CTX_set_verify(ud->ctx, SSL_VERIFY_PEER, NULL);
 	return JS_UNDEFINED;
 }
@@ -245,6 +253,7 @@ static JSValue js_tls_newtls(JSContext *ctx, JSValueConst tv, int argc, JSValueC
 			const char *hostname = JS_ToCString(ctx, argv[2]);
 			if (hostname) {
 				SSL_set_tlsext_host_name(ssl, hostname);
+				SSL_set1_host(ssl, hostname);
 				JS_FreeCString(ctx, hostname);
 			}
 		}
@@ -439,7 +448,7 @@ void register_tls_bridge(JSContext *ctx, JSValue global) {
 	JS_SetPropertyStr(ctx, tls, "init", JS_NewCFunction(ctx, js_tls_init, "init", 0));
 	JS_SetPropertyStr(ctx, tls, "ctx_new", JS_NewCFunction(ctx, js_tls_ctx_new, "ctx_new", 1));
 	JS_SetPropertyStr(ctx, tls, "ctx_set_cert", JS_NewCFunction(ctx, js_tls_ctx_set_cert, "ctx_set_cert", 3));
-	JS_SetPropertyStr(ctx, tls, "ctx_set_verify", JS_NewCFunction(ctx, js_tls_ctx_set_verify, "ctx_set_verify", 1));
+	JS_SetPropertyStr(ctx, tls, "ctx_set_verify", JS_NewCFunction(ctx, js_tls_ctx_set_verify, "ctx_set_verify", 2));
 	JS_SetPropertyStr(ctx, tls, "ctx_free", JS_NewCFunction(ctx, js_tls_ctx_free, "ctx_free", 1));
 	JS_SetPropertyStr(ctx, tls, "newtls", JS_NewCFunction(ctx, js_tls_newtls, "newtls", 3));
 	JS_SetPropertyStr(ctx, tls, "handshake", JS_NewCFunction(ctx, js_tls_handshake, "handshake", 2));
