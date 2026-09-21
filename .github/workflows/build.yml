@@ -53,15 +53,8 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          install: mingw-w64-x86_64-gcc make
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-nodejs make
           update: false
-
-      # Node.js installed by the runner is available inside MSYS2 via
-      # /c/hostedtoolcache paths; setup-node ensures the right version.
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
 
       - name: Build
         shell: msys2 {0}
