@@ -32,6 +32,10 @@ const DEFAULT_TIMEOUT_MS = 180000;
 const SOCKET_PORT = 2601;
 const SOCKET_SIZES = [64, 4096, 65536];
 const SOCKET_TOTAL = { 64: 100000, 4096: 50000, 65536: 10000 };
+// memory-scaling ladder: idle echo services per dedicated node (0 = baseline)
+const DEFAULT_MEM_COUNTS = [0, 100, 500, 1000, 3000, 5000, 10000];
+const MEM_SETTLE_MS = 1000;             // let allocator/GC settle before sampling
+const MEM_MS_PER_SVC = 50;              // per-node timeout budget per service
 
 // case display order; per phase the rows present in results are reported
 const CORE_ORDER = [
@@ -506,6 +510,129 @@ async function run_socket_phase(opts) {
     return { results, warns, failed, rss_samples };
 }
 
+/* -------------------------------------------------------- memory phase */
+
+// write the two temp configs (JS + Lua) for one service count; the count is
+// passed to the JS side via snjs_param (bootstrap arg) and to the Lua side via
+// the config env "mem_count". Mirrors tools/rss_trim.sh's temp-config pattern.
+function write_mem_configs(count) {
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    const js_cfg = path.join(OUT_DIR, "config_mem_js_" + count + ".json");
+    fs.writeFileSync(js_cfg, JSON.stringify({
+        thread: 4,
+        cpath: "./cservice/?.so;./test/cservice/?.so",
+        bootstrap: "snjs test/service/bench_mem_main.js " + count,
+        logservice: "logger",
+        profile: true,
+    }, null, 2) + "\n");
+    const lua_cfg = path.join(OUT_DIR, "config_mem_lua_" + count);
+    fs.writeFileSync(lua_cfg,
+        "thread = 4\n" +
+        "harbor = 0\n" +
+        "logservice = \"logger\"\n" +
+        "profile = true\n" +
+        "mem_count = " + count + "\n" +
+        "bootstrap = \"snlua bootstrap\"\n" +
+        "start = \"test/bench_lua/mem_main\"\n" +
+        "cpath = \"./cservice/?.so;../../test/cservice/?.so\"\n" +
+        "lua_path = \"./lualib/?.lua;./lualib/?/init.lua\"\n" +
+        "lua_cpath = \"./luaclib/?.so\"\n" +
+        "luaservice = \"./?.lua;./service/?.lua;../../?.lua;../../test/bench_lua/?.lua\"\n");
+    return { js_cfg, lua_cfg };
+}
+
+// boot one dedicated node, wait for BENCH_MEM_READY, let it settle, then sample
+// RSS a few times (median) as the steady-state footprint at this service count
+function run_mem_node(spec, timeout_ms, settle_ms) {
+    return new Promise((resolve) => {
+        const child = spawn(spec.cmd, spec.args, { cwd: spec.cwd });
+        const out_log = [];
+        let ready = false;
+        let bad = null;
+        let js_mem = NaN;
+        let gc_kib = NaN;
+        let rss_kb = NaN;
+        const timer = setTimeout(() => {
+            if (!ready) bad = "timeout after " + timeout_ms + "ms waiting for BENCH_MEM_READY";
+            rt.kill_tree(child);
+        }, timeout_ms);
+
+        const sample_and_kill = async () => {
+            await new Promise((r) => setTimeout(r, settle_ms));
+            const samples = [];
+            for (let i = 0; i < 6; i++) {
+                const r = spawnSync("ps", ["-o", "rss=", "-p", String(child.pid)], { encoding: "utf8" });
+                const kb = parseInt((r.stdout || "").trim(), 10);
+                if (Number.isFinite(kb)) samples.push(kb);
+                if (i < 5) await new Promise((r2) => setTimeout(r2, 100));
+            }
+            rss_kb = median(samples);
+            clearTimeout(timer);
+            rt.kill_tree(child);
+        };
+
+        rt.watch_lines(child, (line) => {
+            if (out_log.length < 500) out_log.push("[" + spec.side + "] " + line);
+            if (bad) return;
+            if (line.includes("BENCH_FAIL:")) {
+                bad = spec.side + " " + line.trim();
+                rt.kill_tree(child);
+                return;
+            }
+            const m = line.match(/BENCH case=mem_scale n=\d+ mps=0(.*)/);
+            if (m) {
+                for (const kv of (m[1] || "").matchAll(/([a-z_]+)=(\S+)/g)) {
+                    if (kv[1] === "js_mem") js_mem = parseFloat(kv[2]);
+                    else if (kv[1] === "gc_kib") gc_kib = parseFloat(kv[2]);
+                }
+            }
+            if (!ready && line.includes("BENCH_MEM_READY")) {
+                ready = true;
+                sample_and_kill();
+            }
+        }).then(() => {
+            clearTimeout(timer);
+            if (bad) return resolve({ ok: false, why: bad, log: out_log });
+            if (!ready) return resolve({ ok: false, why: "node exited before BENCH_MEM_READY", log: out_log });
+            if (!Number.isFinite(rss_kb)) return resolve({ ok: false, why: "no RSS sample collected", log: out_log });
+            resolve({ ok: true, why: "", rss_kb, js_mem, gc_kib, log: out_log });
+        });
+    });
+}
+
+async function run_mem_phase(opts) {
+    const rows = {};   // count -> { skyjs:[], lua:[], skyjs_mem:[], lua_gc:[] }
+    let failed = "";
+    let last_bad_log = [];
+    for (let round = 1; round <= opts.repeat && !failed; round++) {
+        for (const count of opts.counts) {
+            const { js_cfg, lua_cfg } = write_mem_configs(count);
+            const sides = [
+                { side: "skyjs", cmd: rt.BIN, args: [js_cfg], cwd: rt.ROOT },
+                { side: "lua", cmd: "./skynet", args: [lua_cfg], cwd: SKYNET_DIR },
+            ];
+            // high counts create thousands of runtimes: scale the per-node timeout
+            const node_timeout = Math.max(opts.timeout_ms, count * MEM_MS_PER_SVC + 30000);
+            for (const spec of sides) {
+                log("== mem round " + round + "/" + opts.repeat + " count " + count +
+                    " side " + spec.side + " ==");
+                const r = await run_mem_node(spec, node_timeout, opts.settle_ms);
+                if (!r.ok) {
+                    failed = "count " + count + " " + spec.side + ": " + r.why;
+                    last_bad_log = r.log;
+                    break;
+                }
+                const row = rows[count] || (rows[count] = { skyjs: [], lua: [], skyjs_mem: [], lua_gc: [] });
+                row[spec.side].push(r.rss_kb);
+                if (spec.side === "skyjs" && Number.isFinite(r.js_mem)) row.skyjs_mem.push(r.js_mem);
+                if (spec.side === "lua" && Number.isFinite(r.gc_kib)) row.lua_gc.push(r.gc_kib);
+            }
+            if (failed) break;
+        }
+    }
+    return { rows, counts: opts.counts, failed, last_bad_log };
+}
+
 /* --------------------------------------------------------------- reports */
 
 function fmt(n) {
@@ -561,6 +688,36 @@ function build_report(env, merged) {
     lines.push("| process RSS peak (whole node) | " + fmt(js_rss / 1024) + " MB | " +
         fmt(lua_rss / 1024) + " MB |");
     lines.push("");
+    if (merged.mem && merged.mem.counts && merged.mem.counts.length) {
+        const counts = merged.mem.counts;
+        lines.push("## memory scaling (idle echo services, dedicated node per count)");
+        lines.push("");
+        lines.push("| services | skyjs RSS MB | lua RSS MB | ratio skyjs/lua |");
+        lines.push("|---|---|---|---|");
+        const js_at = {};
+        const lua_at = {};
+        for (const c of counts) {
+            const row = merged.mem.rows[c] || {};
+            const js = median(row.skyjs || []);
+            const lua = median(row.lua || []);
+            js_at[c] = js;
+            lua_at[c] = lua;
+            const ratio = lua > 0 ? js / lua : NaN;
+            lines.push("| " + c + " | " + fmt(js / 1024) + " | " + fmt(lua / 1024) +
+                " | " + (Number.isFinite(ratio) ? ratio.toFixed(2) : "n/a") + " |");
+        }
+        // per-service slope vs the N=baseline node (KB per service)
+        const base = counts[0];
+        const top = counts[counts.length - 1];
+        const denom = top - base;
+        const js_slope = denom > 0 ? (js_at[top] - js_at[base]) / denom : NaN;
+        const lua_slope = denom > 0 ? (lua_at[top] - lua_at[base]) / denom : NaN;
+        const slope_ratio = lua_slope > 0 ? js_slope / lua_slope : NaN;
+        lines.push("| per-service (KB, slope vs N=" + base + ") | " + fmt(js_slope) +
+            " | " + fmt(lua_slope) + " | " +
+            (Number.isFinite(slope_ratio) ? slope_ratio.toFixed(2) : "n/a") + " |");
+        lines.push("");
+    }
     if (merged.warns.length) {
         lines.push("## warnings");
         lines.push("");
@@ -572,13 +729,23 @@ function build_report(env, merged) {
 
 /* ------------------------------------------------------------------ main */
 
+function parse_counts(s) {
+    return String(s).split(",").map((x) => parseInt(x.trim(), 10))
+        .filter((x) => Number.isFinite(x) && x >= 0);
+}
+
 function parse_args(argv) {
-    const opts = { phase: "core", repeat: 3, timeout_ms: DEFAULT_TIMEOUT_MS };
+    const opts = { phase: "core", repeat: 3, timeout_ms: DEFAULT_TIMEOUT_MS,
+        counts: DEFAULT_MEM_COUNTS.slice(), settle_ms: MEM_SETTLE_MS };
+    let counts_from_cli = false;
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "--phase") opts.phase = argv[++i];
         else if (argv[i] === "--repeat") opts.repeat = parseInt(argv[++i], 10);
         else if (argv[i] === "--timeout") opts.timeout_ms = parseInt(argv[++i], 10);
+        else if (argv[i] === "--counts") { opts.counts = parse_counts(argv[++i]); counts_from_cli = true; }
+        else if (argv[i] === "--settle") opts.settle_ms = parseInt(argv[++i], 10);
     }
+    if (!counts_from_cli && process.env.MEM_COUNTS) opts.counts = parse_counts(process.env.MEM_COUNTS);
     return opts;
 }
 
@@ -600,7 +767,7 @@ const EMPTY = () => ({ results: {}, warns: [], failed: "" });
 
 async function main() {
     const opts = parse_args(process.argv.slice(2));
-    if (!["core", "cluster", "socket", "all"].includes(opts.phase)) {
+    if (!["core", "cluster", "socket", "mem", "all"].includes(opts.phase)) {
         log("unknown phase: " + opts.phase);
         process.exit(2);
     }
@@ -633,10 +800,18 @@ async function main() {
         log("FAIL bench -- " + socket.failed);
         process.exit(1);
     }
+    const mem = (opts.phase === "mem" || opts.phase === "all")
+        ? await run_mem_phase(opts) : { rows: {}, counts: [], failed: "" };
+    if (mem.failed) {
+        log("FAIL bench -- " + mem.failed);
+        for (const l of (mem.last_bad_log || []).slice(-25)) log("      | " + l);
+        process.exit(1);
+    }
 
     const merged = {
         results: { ...core.results, ...cluster.results, ...socket.results },
         rss: core.rss,
+        mem: { rows: mem.rows, counts: mem.counts },
         warns: [...core.warns, ...cluster.warns, ...socket.warns],
     };
     const { lines } = build_report(env, merged);
@@ -649,6 +824,7 @@ async function main() {
         rss_core: core.rss,
         rss_cluster: cluster.rss_by_pair || {},
         rss_socket: socket.rss_samples || {},
+        mem_scale: mem.rows || {},
     }, null, 2));
 
     for (const l of lines) log(l);
@@ -662,5 +838,5 @@ if (require.main === module) {
 }
 
 module.exports = { run_bench_process, run_skyjs_bench, run_lua_bench, run_core_phase,
-    run_cluster_phase, run_socket_phase, env_info, median, ALL_ORDER, CORE_ORDER,
+    run_cluster_phase, run_socket_phase, run_mem_phase, env_info, median, ALL_ORDER, CORE_ORDER,
     CLUSTER_ORDER, SOCKET_ORDER, MEM_CASE };
