@@ -9,7 +9,7 @@
 //   BENCH_SUITE_DONE                        kill switch
 // The in-process ms field wins because log lines cross the logger service
 // asynchronously and lag under CPU saturation. Phases:
-//   core    single node, core messaging cases (bench_main.js / main.lua)
+//   core    single node, core messaging cases (bench_suite_main.js / main.lua)
 //   cluster two nodes over skyclusterd / lua clusterd, three pair types
 //   socket  TCP echo servers on :2601 + the shared node load client
 // The two sides run SEQUENTIALLY per round so they never contend for CPU;

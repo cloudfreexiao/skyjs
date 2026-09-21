@@ -1,5 +1,5 @@
 // Acceptance (JS<->JS variant): cross-node call over skyclusterd, no lua node.
-// Same as test_cluster_main.js minus the JS2LUA block, which needs the stock
+// Same as cluster_a_main.js minus the JS2LUA block, which needs the stock
 // lua node on :2530 -- use config_cluster_a.json for that manual scenario.
 skynet.register("main");
 skynet.newservice("skyclusterd");

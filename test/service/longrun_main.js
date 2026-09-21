@@ -10,7 +10,7 @@
 skynet.register("main");
 
 const c_echo = skynetcore.int_command("LAUNCH", "echo");
-const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js");
+const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js");
 
 const P20 = "ping_" + "m".repeat(15);
 const P64K = "x".repeat(65536);
@@ -30,7 +30,7 @@ async function one_tick() {
     for (let i = 0; i < 20; i++) ps.push(skynet.sleep(10));
     await Promise.all(ps);
     for (let i = 0; i < 2; i++) {
-        const h = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js");
+        const h = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js");
         await skynet.call(h, "text", P20);
         // KILL 参数是 :hex 格式（内核 tohandle 只认 :hex/.name，十进制会被拒）
         skynetcore.command("KILL", ":" + h.toString(16));

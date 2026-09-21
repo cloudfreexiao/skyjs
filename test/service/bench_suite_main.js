@@ -17,7 +17,7 @@ const ARR1000 = Array.from({ length: 1000 }, (v, i) => i);
 const STARTUP_N = 500;
 
 const c_echo = skynetcore.int_command("LAUNCH", "echo");
-const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js");
+const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js");
 
 function mark(name) {
     skynetcore.error("BENCH_BEGIN " + name);
@@ -131,7 +131,7 @@ async function run_all() {
 
     await case_startup("startup_c", () => skynetcore.int_command("LAUNCH", "echo"));
     await case_startup("startup_self",
-        () => skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js"));
+        () => skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js"));
 
     await case_timer(50000);
 

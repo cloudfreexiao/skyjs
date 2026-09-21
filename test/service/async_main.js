@@ -2,12 +2,12 @@
 // 1. JS -> C echo (await a reply from a C service)
 // 2. chain A -> B (two JS services, nested awaits + timer)
 // 3. concurrency: 10 interleaved sleep+call promises
-// 4. error propagation: call js_bomb -> PTYPE_ERROR -> reject -> catch
+// 4. error propagation: call async_bomb_worker -> PTYPE_ERROR -> reject -> catch
 // The driver triggers "start" and logs the returned summary.
 
 const echo_h = skynetcore.int_command("LAUNCH", "echo");
-const chain_h = skynetcore.int_command("LAUNCH", "snjs test/service/js_chain_a.js");
-const bomb_h = skynetcore.int_command("LAUNCH", "snjs test/service/js_bomb.js");
+const chain_h = skynetcore.int_command("LAUNCH", "snjs test/service/async_chain_a_worker.js");
+const bomb_h = skynetcore.int_command("LAUNCH", "snjs test/service/async_bomb_worker.js");
 skynetcore.error("MAIN echo=" + echo_h + " chain=" + chain_h + " bomb=" + bomb_h);
 skynet.register("main");
 skynetcore.int_command("LAUNCH", "driver .main 300 start 0");

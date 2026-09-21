@@ -3,7 +3,7 @@
 // binary as length/hex summaries). The tail block covers the format/timer
 // surface: printf-style placeholders (%s %d %f %j %o %%), time/timeLog/
 // timeEnd, and the missing-label warning. Assertions live in tools/
-// run_tests.js (js_console scenario).
+// run_tests.js (console scenario).
 console.log("log", 1, 1.5, true, null, undefined, 10n);
 console.info("info", [1, 2], new Map([[1, "a"], ["k", 5n]]));
 console.warn("warn", { k: "v", nested: { x: 1 } });

@@ -16,7 +16,7 @@ const P40K = "x".repeat(40000);
 const CASES = [
     { name: "cl_100", payload: P100, n: 5000, warm: 200 },
     { name: "cl_40k", payload: P40K, n: 1000, warm: 50 },
-    // pipelined: conc concurrent callers, mirrored with bench_cluster_a.js
+    // pipelined: conc concurrent callers, mirrored with bench_cluster_a_main.js
     { name: "cl_pipe", payload: P100, n: 5000, warm: 200, conc: 8 },
 ];
 

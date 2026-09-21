@@ -1,7 +1,7 @@
 -- run_bench.js phase-3 target (stock Lua side): raw TCP echo on 2601.
 -- socket.lua has no per-data callback for TCP, so each connection gets a
 -- forked blocking read/write loop (the documented skynet echo pattern).
--- Lockstep with test/service/bench_socket_server.js.
+-- Lockstep with test/service/bench_socket_main.js.
 local skynet = require "skynet"
 local socket = require "skynet.socket"
 

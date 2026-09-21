@@ -209,7 +209,9 @@ cservice/skyclusterd.so: service-src/skyclusterd.c $(IMPORT_LIB) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $< -o $@ -I$(SKYNET_INC) -Iplatform $(IMPORT_LIB)
 
 clean:
-	rm -rf build $(TARGET) test/seri_tool cservice/*.so test/cservice/*.so
+	rm -rf build skyjs skyjs.exe test/seri_tool test/seri_tool.dSYM \
+		cservice/*.so cservice/*.dSYM \
+		test/cservice/*.so test/cservice/*.dSYM
 
 lint:
 	node tools/lint.js js test/service tools

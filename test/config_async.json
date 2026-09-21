@@ -2,7 +2,7 @@
   "thread": 4,
   "cpath": "./cservice/?.so;./test/cservice/?.so",
   "harbor": 0,
-  "bootstrap": "snjs test/service/js_console.js",
+  "bootstrap": "snjs test/service/async_main.js",
   "logservice": "logger",
   "profile": true
 }

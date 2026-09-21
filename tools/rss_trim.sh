@@ -1,12 +1,12 @@
 #!/bin/zsh
 # usage: rss_trim.sh <case> — dedicated-node RSS peak for one bench case
-# (bootstrap runs test/service/bench_main_trim.js with the case as snjs_param)
+# (bootstrap runs test/service/bench_trim_main.js with the case as snjs_param)
 cd "$(dirname "$0")/.."
 CASE=$1
 LOG=build/trim_log_$CASE.txt
 cat > build/config_trim.json <<EOF
 { "thread": 4, "cpath": "./cservice/?.so;./test/cservice/?.so", "harbor": 0,
-  "bootstrap": "snjs test/service/bench_main_trim.js $CASE",
+  "bootstrap": "snjs test/service/bench_trim_main.js $CASE",
   "logservice": "logger", "profile": true }
 EOF
 ./skyjs build/config_trim.json > $LOG 2>&1 &

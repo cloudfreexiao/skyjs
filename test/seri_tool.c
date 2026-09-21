@@ -70,7 +70,7 @@ main(int argc, char *argv[]) {
 	}
 	lua_State *L = luaL_newstate();
 	if (strcmp(argv[1], "gen") == 0) {
-		// sequence must stay in sync with test/service/test_seri_main.js
+		// sequence must stay in sync with test/service/seri_main.js
 		lua_pushnil(L);
 		lua_pushboolean(L, 1);
 		lua_pushboolean(L, 0);

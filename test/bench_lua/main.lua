@@ -1,5 +1,5 @@
 -- run_bench.js phase-1 driver (stock Lua side). Mirrors
--- test/service/bench_main.js case-for-case; see that file for the output
+-- test/service/bench_suite_main.js case-for-case; see that file for the output
 -- protocol. Payloads, N and case order must stay in lockstep with it.
 -- Timing is in-process skynet.hpc() (CLOCK_MONOTONIC, nanoseconds) around
 -- each loop: log lines cross the logger service asynchronously and lag under
@@ -26,7 +26,7 @@ skynet.register_protocol {
 
 -- echo targets are launched inside skynet.start: newservice needs a
 -- yieldable context (skynetcore.int_command needs none on the JS side, so
--- bench_main.js can stay at file scope)
+-- bench_suite_main.js can stay at file scope)
 local c_echo, l_echo
 
 local function mark(name) skynet.error("BENCH_BEGIN " .. name) end
@@ -47,7 +47,7 @@ end
 
 local function case_send(n)
     -- fire-and-forget (session 0, echo ignores those); the trailing call is
-    -- the FIFO drain barrier, mirroring bench_main.js
+    -- the FIFO drain barrier, mirroring bench_suite_main.js
     mark("send_self")
     local t0 = skynet.hpc()
     for _ = 1, n do skynet.send(l_echo, "text", P20) end
@@ -96,7 +96,7 @@ end
 
 local function case_startup(name, launch)
     -- creation + one round trip each, so the service actually processed its
-    -- first message (snlua loads lazily), mirroring bench_main.js
+    -- first message (snlua loads lazily), mirroring bench_suite_main.js
     mark(name)
     local t0 = skynet.hpc()
     local handles = {}
@@ -118,7 +118,7 @@ skynet.start(function()
     c_echo = skynet.newservice("echo")
     l_echo = skynet.newservice("test/bench_lua/echo")
 
-    -- warmup (untimed), mirroring bench_main.js
+    -- warmup (untimed), mirroring bench_suite_main.js
     for _ = 1, 300 do skynet.call(c_echo, "text", P20) end
     for _ = 1, 300 do skynet.call(l_echo, "text", P20) end
     for _ = 1, 100 do

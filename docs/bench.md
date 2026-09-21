@@ -42,9 +42,9 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 | cluster | `cl_<pair>_pipe` | 同 100B payload，8 路并发 caller（Promise.all / skynet.fork fork-join）保持多在途请求，绕开串行 Nagle 平台，测纯实现开销；双向各 N=5000 |
 | socket | `sock_64/4096/65536` | TCP echo（字节原样回包）responses/s 与 MB/s |
 
-两侧脚本严格镜像：JS 侧 [test/service/bench_main.js](../test/service/bench_main.js)、
-[bench_cluster_a/b.js](../test/service/bench_cluster_a.js)、
-[bench_socket_server.js](../test/service/bench_socket_server.js)；Lua 侧
+两侧脚本严格镜像：JS 侧 [test/service/bench_suite_main.js](../test/service/bench_suite_main.js)、
+[bench_cluster_a/b.js](../test/service/bench_cluster_a_main.js)、
+[bench_socket_main.js](../test/service/bench_socket_main.js)；Lua 侧
 [test/bench_lua/](../test/bench_lua/)（`main.lua` / `cluster_main_a,b.lua` /
 `socket_echo.lua`，配置与 clustername 同目录）。
 
@@ -139,6 +139,6 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
   必须同机同时段 A/B 或用 lua 列归一化。
 - RSS 采样粒度 250ms（`ps` 轮询），且受 macOS 内存压缩影响轮次间波动大
   （见解读第 7 条）；内存归因用单用例专用节点工具链
-  （test/service/bench_main_trim.js、test/bench_lua/main_trim.lua +
+  （test/service/bench_trim_main.js、test/bench_lua/main_trim.lua +
   tools/rss_trim*.sh）。
 - 仅 macOS/arm64 实测；Linux（epoll 路径）未验证。

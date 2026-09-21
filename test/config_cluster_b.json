@@ -2,7 +2,7 @@
   "thread": 4,
   "cpath": "./cservice/?.so;./test/cservice/?.so",
   "harbor": 0,
-  "bootstrap": "snjs test/service/test_cluster_node2.js",
+  "bootstrap": "snjs test/service/cluster_node_b.js",
   "logservice": "logger",
   "profile": true
 }

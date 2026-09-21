@@ -1,5 +1,5 @@
 -- Bench echo target (Lua side): text echoes the string untouched; lua
--- unpacks and repacks, matching test/service/bench_echo_js.js on the skyjs
+-- unpacks and repacks, matching test/service/bench_echo_worker.js on the skyjs
 -- side. Text protocol registration follows launcher.lua's pattern
 -- (unpack = skynet.tostring); pack passes the string through raw.
 local skynet = require "skynet"

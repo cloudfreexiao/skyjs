@@ -1,7 +1,7 @@
 // Task 7: message throughput benchmark (single node, serial round trips).
 // Compares JS->C echo vs JS->JS echo; timing via skynetcore.now (centiseconds).
 const c_echo = skynetcore.int_command("LAUNCH", "echo");
-const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/js_echo_async.js");
+const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_smoke_worker.js");
 skynet.register("main");
 skynetcore.int_command("LAUNCH", "driver .main 300 bench 0");
 

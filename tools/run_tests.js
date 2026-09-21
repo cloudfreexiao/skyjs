@@ -50,32 +50,32 @@ const NEVER = [
 
 // the acceptance suite; one entry per README acceptance-matrix row
 const SUITE = [
-    { name: "c_core", config: "test/config.json",
+    { name: "core", config: "test/config_core.json",
         must: ["echo service started", "LAUNCH echo"] },
-    { name: "js_echo", config: "test/config_js_echo.json",
+    { name: "echo", config: "test/config_echo.json",
         must: ["DRIVER RESP: JS_ECHO:hello_from_js"] },
-    { name: "js_async", config: "test/config_js_async.json",
+    { name: "async", config: "test/config_async.json",
         must: ["ASYNC RESULT: R1=ping|R2=A(B(go->B))|CONC=c0,c1,c2,c3,c4,c5,c6,c7,c8,c9|ERR=true"] },
-    { name: "js_deadloop", config: "test/config_js_deadloop.json", timeout_ms: 20000,
+    { name: "deadloop", config: "test/config_deadloop.json", timeout_ms: 20000,
         must: ["DRIVER ERROR from"] },
-    { name: "js_oom", config: "test/config_js_oom.json",
+    { name: "oom", config: "test/config_oom.json",
         must: ["DRIVER RESP: OOM_CAUGHT:InternalError:out of memory"] },
-    { name: "js_console", config: "test/config_js_console.json",
+    { name: "console", config: "test/config_console.json",
         must: ["FMT [s] [7] [3] [1.25] [{\"k\":1}] [[2, 3]] [%]",
                "FMT missing [1] trailing extra", "no such label 'NOPE'",
                "CONSOLE_OK"],
         must_re: [/T: \d+ms/] },
-    { name: "js_socket", config: "test/config_js_socket.json",
+    { name: "socket", config: "test/config_socket.json",
         must: ["SOCKTEST ALL_ECHO_OK", "SOCKTEST conn 3 closed"] },
     // gate/redirect + C netpack frame buffer + per-connection binary: a JS
     // client sends framed (incl. binary/coalesced/split) packets through the
     // gate, watchdog binds an agent, agent echoes each packet's raw payload
     { name: "gate", config: "test/config_gate.json",
         must: ["WATCHDOG gate ready on port 18855", "GATE_OK 2 clients x 5017 bytes"] },
-    { name: "js_seri", config: "test/config_js_seri.json", special: run_seri },
+    { name: "seri", config: "test/config_seri.json", special: run_seri },
     // JS<->JS variant: the original config_cluster_a.json also queries a stock
     // lua node on :2530, which only exists in the manual interop scenario
-    { name: "cluster", config: "test/config_cluster_jsjs.json", special: run_cluster },
+    { name: "cluster", config: "test/config_cluster.json", special: run_cluster },
     // reconnect semantics: peer down -> calls fail immediately (no hang, no
     // background retry); peer up -> the next call reconnects on demand
     { name: "cluster_fail", config: "test/config_cluster_fail.json", special: run_cluster_fail },
@@ -186,7 +186,7 @@ async function run_seri(cfg, never, timeout_ms) {
 
     // the JS-packed file must survive the ORIGINAL unpacker: byte-level
     // compatibility is proven when the stock lua-seri can dump it back
-    // (test_seri_main.js writes to this hardcoded path)
+    // (seri_main.js writes to this hardcoded path)
     const dump = spawnSync(SERI_TOOL, ["dump", "/tmp/seri_js.bin"],
         { cwd: ROOT, encoding: "utf8" });
     if (dump.status !== 0) {

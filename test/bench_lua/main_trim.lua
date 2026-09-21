@@ -1,6 +1,6 @@
 -- Memory-attribution trim driver (stock Lua side): runs ONE bench case per
 -- dedicated node, case name from the snlua bootstrap param (chunk vararg),
--- mirroring test/service/bench_main_trim.js. Keep the case set in lockstep
+-- mirroring test/service/bench_trim_main.js. Keep the case set in lockstep
 -- with it; see that file and build/rss_trim*.sh for the sampling harness.
 local skynet = require "skynet"
 local case = ...

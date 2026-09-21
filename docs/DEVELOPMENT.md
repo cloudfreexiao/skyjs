@@ -12,14 +12,14 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 
 | 场景 | 配置 | 验证点 |
 |---|---|---|
-| 纯 C 内核 | `test/config.json` | logger + C echo bootstrap |
-| JS echo/打断/OOM | `test/config_js_echo.json`、`config_js_deadloop.json`、`config_js_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
+| 纯 C 内核 | `test/config_core.json` | logger + C echo bootstrap |
+| JS echo/打断/OOM | `test/config_echo.json`、`config_deadloop.json`、`config_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
 | TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→LuaTable 往返断言(TS_ECHO_OK) |
-| console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
-| 异步核心 | `test/config_js_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
-| socket 桥 | `test/config_js_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
+| console 面 | `test/config_console.json`(套件 console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
+| 异步核心 | `test/config_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
+| socket 桥 | `test/config_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
 | gate/redirect | `test/config_gate.json` | C netpack 分帧/重组、watchdog-agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
-| lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip |
+| lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_seri.json` | 字节级 roundtrip |
 | cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
 | cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
 | 对比压测 | `make bench`(三阶段:core/cluster/socket) | SkyJS vs 原版 skynet 全套性能基线，方法学与数据见 [bench.md](bench.md) |
@@ -117,7 +117,7 @@ resolve。
 
 `skynet.pack(...)` 返回 ArrayBuffer；`skynet.unpack(buf)` 返回按 seri 流顺序排列
 的值数组（buf 亦接受字符串，按其 UTF-8 字节流解）。js-seri.c 与原版 lua-seri
-字节级兼容（验收：`test/seri_tool` 对拍 + `test/config_js_seri.json` roundtrip），
+字节级兼容（验收：`test/seri_tool` 对拍 + `test/config_seri.json` roundtrip），
 pack 产物可跨 JS/Lua 节点互通。
 
 JS → seri（pack）类型映射（多入口，回读一律为 LuaTable）：
@@ -262,8 +262,8 @@ cluster.snax，也未与 gateserver 复用监听。
   `socket-server error: invalid socket` 是 skynet 内核的固有噪音（每次
   connect 拒绝一条），非故障。
 - 内存：per-service memstat（`skynetcore.mem()`），`js_memlimit` 配 OOM 限额，
-  OOM 表现为 JS 抛错可被捕获（见 `test/service/js_oom.js`）。
-- 死循环：SIGNAL 命令打断机制，见 `test/service/js_deadloop.js` 与 snjs.c 头注释
+  OOM 表现为 JS 抛错可被捕获（见 `test/service/oom_worker.js`）。
+- 死循环：SIGNAL 命令打断机制，见 `test/service/deadloop_worker.js` 与 snjs.c 头注释
   （注意：信号到达时若无 JS 在跑，陷阱会滞后到下一条消息）。
 - **KILL/跨服务命令参数是 `:hex` 格式**：内核 `tohandle()` 只认 `:十六进制`
   与 `.名字`，传十进制 handle 会被拒（仅一行 `Can't convert N to handle` 日志，
@@ -272,7 +272,7 @@ cluster.snax，也未与 gateserver 复用监听。
   先 grep `Can't convert` 确认销毁是否真执行过，再查泄漏。
 - 服务参数 `snjs_param` 在用户脚本 eval 完成后才注入（snjs.c post-JS_Eval），
   `skynet.start` 回调内（同步启动阶段）读到 undefined；需在首个 await 之后再读，
-  或用 driver kick 模式（见 `test/service/bench_main_trim.js`、`longrun_main.js`）。
+  或用 driver kick 模式（见 `test/service/bench_trim_main.js`、`longrun_main.js`）。
 - 长跑稳定性与 memstat/RSS 对账：`make longrun`（`DURATION=N` 分钟，默认 30），
   harness 汇总 js_mem 与 RSS 的增长量（memstat 盲区）并落盘 `build/longrun/`。
 - 其余已知限制（socket.start 重复事件、TIMEOUT 单位等）见 [TODO.md](TODO.md)

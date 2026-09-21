@@ -4,7 +4,7 @@
 // 3. write a JS-packed file for seri_tool dump inspection
 // 4. PTYPE_LUA roundtrip between two JS services (ArrayBuffer payloads)
 
-const seri_b_h = skynetcore.int_command("LAUNCH", "snjs test/service/js_seri_b.js");
+const seri_b_h = skynetcore.int_command("LAUNCH", "snjs test/service/seri_worker.js");
 skynet.register("main");
 skynetcore.int_command("LAUNCH", "driver .main 300 start 0");
 

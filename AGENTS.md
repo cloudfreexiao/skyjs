@@ -21,7 +21,7 @@ git submodule update --init     # 首次：拉取 skynet + quickjs-ng
 make                            # 构建 ./skyjs + cservice/*.so + test 服务
 make test/seri_tool             # lua-seri 对拍工具
 make lint                       # JS 静态检查（提交前必跑，零依赖）
-./skyjs test/config.json        # 运行（CWD 必须是仓库根目录）
+./skyjs test/config_core.json        # 运行（CWD 必须是仓库根目录）
 ```
 
 ## 硬性约束

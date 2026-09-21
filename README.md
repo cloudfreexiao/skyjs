@@ -70,7 +70,7 @@ Windows 测试套件暂未启用(依赖 POSIX 信号等工具链)。
 ## 运行
 
 ```sh
-./skyjs test/config.json        # config 为扁平 JSON,全部键写入 env;
+./skyjs test/config_core.json        # config 为扁平 JSON,全部键写入 env;
                                 # 其中 thread/cpath/harbor/bootstrap/daemon/
                                 # logger/logservice/profile 映射 skynet_config
 ```
@@ -90,14 +90,14 @@ skynet.start(() => {
 
 | 场景 | 命令 | 验证点 |
 |---|---|---|
-| 纯 C 内核 | `./skyjs test/config.json` | logger + C echo bootstrap + SIGINT |
-| JS echo/打断/OOM | `test/config_js_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环、memlimit OOM 可捕获 |
-| console 面 | `test/config_js_console.json`(套件 js_console) | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
-| 异步核心 | `test/config_js_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
-| socket 桥 | `test/config_js_socket.json` | JS TCP echo server + 客户端 + nc 外部互通；per-connection binary 以 ArrayBuffer 交付 |
+| 纯 C 内核 | `./skyjs test/config_core.json` | logger + C echo bootstrap + SIGINT |
+| JS echo/打断/OOM | `test/config_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环、memlimit OOM 可捕获 |
+| console 面 | `test/config_console.json`(套件 console) | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
+| 异步核心 | `test/config_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
+| socket 桥 | `test/config_socket.json` | JS TCP echo server + 客户端 + nc 外部互通；per-connection binary 以 ArrayBuffer 交付 |
 | gate/redirect | `test/config_gate.json` | C netpack 分帧重组、watchdog→agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
-| lua-seri 对拍 | `test/seri_tool gen build/seri_ref.bin` + `test/config_js_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
-| cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster_jsjs.json`(无 Lua 节点依赖) |
+| lua-seri 对拍 | `test/seri_tool gen build/seri_ref.bin` + `test/config_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |
+| cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | SkyJS↔SkyJS 跨节点 call；自动化版为 `config_cluster.json`(无 Lua 节点依赖) |
 | cluster 重连语义 | `test/config_cluster_fail.json` | 对端宕机→call 立即失败(无后台重试)；对端上线→下一次 call 按需重连成功 |
 | TypeScript 示例 | `examples/ts_echo/build.sh` + `./skyjs examples/ts_echo/config.json` | TS 服务转译加载、text/lua 协议 RTT、table→Map 往返(TS_ECHO_OK) |
 | **与原版互通** | `make interop`(一键自动化);手动:`cd 3rd/skynet && make && ./skynet ../../test/cluster_lua/config` + `./skyjs test/config_cluster_interop.json` | SkyJS↔原版 Lua 节点双向 cluster.call/query |

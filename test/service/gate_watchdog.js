@@ -13,7 +13,7 @@ skynet.start(() => {
         if (cmd === "wait_ready") {
             // args: [port]; launch the gate and open it before returning so the
             // caller can safely connect afterwards
-            gate = skynet.newservice("snjs test/service/gate.js");
+            gate = skynet.newservice("snjs test/service/gate_server.js");
             await skynet.call(gate, "lua", skynet.pack("open", args[1] | 0, skynet.self()));
             skynetcore.error("WATCHDOG gate ready on port " + (args[1] | 0));
             return skynet.pack(true);
@@ -22,7 +22,7 @@ skynet.start(() => {
             const sub = args[1];
             const fd = args[2];
             if (sub === "open") {
-                const agent = skynet.newservice("snjs test/service/agent.js");
+                const agent = skynet.newservice("snjs test/service/gate_agent.js");
                 agents.set(fd, agent);
                 await skynet.call(gate, "lua", skynet.pack("forward", fd, agent, 0));
                 skynetcore.error("WATCHDOG bound agent " + agent + " to fd " + fd);

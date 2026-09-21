@@ -2,7 +2,7 @@
 // its RSS peak can be attributed cleanly (case name comes from snjs_param,
 // see test/config_bench_*.json bootstrap args). A driver service kicks "run"
 // 300ms after start, when snjs_param is already set. Case set mirrors
-// bench_main.js; keep the two in lockstep when bench cases change.
+// bench_suite_main.js; keep the two in lockstep when bench cases change.
 skynet.register("main");
 
 const P20 = "ping_" + "m".repeat(15);
@@ -14,7 +14,7 @@ const ARR1000 = Array.from({ length: 1000 }, (v, i) => i);
 const STARTUP_N = 500;
 
 const c_echo = skynetcore.int_command("LAUNCH", "echo");
-const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js");
+const j_echo = skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js");
 
 function mark(name) {
     skynetcore.error("BENCH_BEGIN " + name);
@@ -141,7 +141,7 @@ async function run_one(name) {
             break;
         case "startup_self":
             await case_startup("startup_self",
-                () => skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_js.js"));
+                () => skynetcore.int_command("LAUNCH", "snjs test/service/bench_echo_worker.js"));
             break;
         case "timer_wake":
             await case_timer(50000);

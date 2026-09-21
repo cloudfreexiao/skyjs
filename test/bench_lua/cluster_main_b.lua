@@ -1,6 +1,6 @@
 -- run_bench.js phase-2 driver, node B (port 2529): echo + reverse-direction
 -- runner, booted BEFORE node A by the harness. Mirrors
--- test/service/bench_cluster_b.js.
+-- test/service/bench_cluster_b_main.js.
 local skynet = require "skynet"
 local cluster = require "skynet.cluster"
 

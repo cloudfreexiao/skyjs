@@ -18,7 +18,7 @@ skynet.start(() => {
 });
 
 skynet.timeout(1, async () => {
-    const server = skynet.newservice("snjs test/service/http_echo_server.js");
+    const server = skynet.newservice("snjs test/service/http_server.js");
     const port = await skynet.call(server, "text", "ping");
     const base = "http://127.0.0.1:" + port;
 

@@ -1,6 +1,6 @@
 -- run_bench.js phase-2 driver, node A (port 2528): caller + echo +
 -- orchestrator, booted AFTER node B (harness waits for BENCH_CLUSTER_READY).
--- Mirrors test/service/bench_cluster_a.js; case names are pair-agnostic and
+-- Mirrors test/service/bench_cluster_a_main.js; case names are pair-agnostic and
 -- get renamed per pair by the harness.
 local skynet = require "skynet"
 local cluster = require "skynet.cluster"

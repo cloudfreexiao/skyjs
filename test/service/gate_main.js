@@ -90,7 +90,7 @@ skynet.start(() => {
 
 // bootstrap async work off a timer so the first worker_cb drains the promises
 skynet.timeout(1, async () => {
-    const wd = skynet.newservice("snjs test/service/watchdog.js");
+    const wd = skynet.newservice("snjs test/service/gate_watchdog.js");
     await skynet.call(wd, "lua", skynet.pack("wait_ready", PORT));
     // two concurrent clients exercise independent per-fd reassembly state
     const ok = await Promise.all([run_client("A"), run_client("B")]);
