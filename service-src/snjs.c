@@ -53,6 +53,9 @@ struct js_block {
 /* js-seri.c extensions (Task 5) */
 int js_seri_init(struct snjs *l);
 
+/* forward declaration for lazy loader (defined after read_file/optstring) */
+static int eval_runtime(struct snjs *l, const char *path, const char *where);
+
 /* ------------------------------------------------------------------ allocator */
 
 static void
@@ -514,6 +517,58 @@ js_sock_shutdown(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *
 	return JS_UNDEFINED;
 }
 
+static const char lazy_setup_js[] =
+"(function() {\n"
+"    const P = globalThis.__snjs_lazy_paths;\n"
+"    delete globalThis.__snjs_lazy_paths;\n"
+"    const F = {};\n"
+"    F[P.socket]       = { g: ['socket'], d: [] };\n"
+"    F[P.crypt]        = { g: ['crypt'], d: [] };\n"
+"    F[P.sockethelper] = { g: ['sockethelper'], d: [P.socket] };\n"
+"    F[P.cluster]      = { g: ['cluster'], d: [] };\n"
+"    F[P.gateserver]   = { g: ['gateserver'], d: [] };\n"
+"    F[P.http]         = { g: ['httpd', 'httpc', 'http_internal'], d: [P.sockethelper] };\n"
+"    F[P.websocket]    = { g: ['websocket'], d: [P.http, P.crypt, P.sockethelper] };\n"
+"    const L = {};\n"
+"    function load(p) {\n"
+"        if (L[p]) return;\n"
+"        const m = F[p];\n"
+"        if (!m) return;\n"
+"        m.d.forEach(load);\n"
+"        m.g.forEach(function(n) { delete globalThis[n]; });\n"
+"        skynetcore.__load_runtime(p);\n"
+"        L[p] = true;\n"
+"    }\n"
+"    const keys = Object.keys(F);\n"
+"    for (let i = 0; i < keys.length; i++) {\n"
+"        const p = keys[i];\n"
+"        const names = F[p].g;\n"
+"        for (let j = 0; j < names.length; j++) {\n"
+"            (function(path, name) {\n"
+"                Object.defineProperty(globalThis, name, {\n"
+"                    get: function() { load(path); return globalThis[name]; },\n"
+"                    configurable: true,\n"
+"                    enumerable: true\n"
+"                });\n"
+"            })(p, names[j]);\n"
+"        }\n"
+"    }\n"
+"})();\n";
+
+static JSValue
+js_load_runtime(JSContext *ctx, JSValueConst this_val,
+                int argc, JSValueConst *argv)
+{
+	struct snjs *l = JS_GetContextOpaque(ctx);
+	const char *path = JS_ToCString(ctx, argv[0]);
+	if (!path) return JS_EXCEPTION;
+	int r = eval_runtime(l, path, "lazy module load error");
+	JS_FreeCString(ctx, path);
+	if (r < 0)
+		return JS_ThrowInternalError(ctx, "failed to load runtime module");
+	return JS_UNDEFINED;
+}
+
 static void
 register_bridge(struct snjs *l) {
 	JSValue obj = JS_NewObject(l->jsc);
@@ -549,6 +604,8 @@ register_bridge(struct snjs *l) {
 	JS_SetPropertyStr(l->jsc, obj, "read_file", JS_NewCFunction(l->jsc, js_seri_readfile, "read_file", 1));
 	JS_SetPropertyStr(l->jsc, obj, "write_file", JS_NewCFunction(l->jsc, js_seri_writefile, "write_file", 2));
 	JS_SetPropertyStr(l->jsc, obj, "str", JS_NewCFunction(l->jsc, js_seri_ab2str, "str", 1));
+	JS_SetPropertyStr(l->jsc, obj, "__load_runtime",
+		JS_NewCFunction(l->jsc, js_load_runtime, "__load_runtime", 1));
 	JSValue g = JS_GetGlobalObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, g, "skynetcore", obj);
 	register_crypto_bridge(l->jsc, g);
@@ -813,14 +870,35 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	if (lr < 0) return 1;
 	if (lr > 0) l->js_managed = 1;
 
-	// optional secondary loaders: socket bridge, socket helper, cluster bridge, gateserver
-	if (eval_runtime(l, optstring(ctx, "js_socket", "./js/socket.js"), "snjs socket loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_crypt", "./js/crypt.js"), "snjs crypt loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_sockethelper", "./js/sockethelper.js"), "snjs sockethelper loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_cluster", "./js/cluster.js"), "snjs cluster loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_gateserver", "./js/gateserver.js"), "snjs gateserver loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_http", "./js/http.js"), "snjs http loader error") < 0) return 1;
-	if (eval_runtime(l, optstring(ctx, "js_websocket", "./js/websocket.js"), "snjs websocket loader error") < 0) return 1;
+	{
+		JSValue g = JS_GetGlobalObject(l->jsc);
+		JSValue paths = JS_NewObject(l->jsc);
+		JS_SetPropertyStr(l->jsc, paths, "socket",
+			JS_NewString(l->jsc, optstring(ctx, "js_socket", "./js/socket.js")));
+		JS_SetPropertyStr(l->jsc, paths, "crypt",
+			JS_NewString(l->jsc, optstring(ctx, "js_crypt", "./js/crypt.js")));
+		JS_SetPropertyStr(l->jsc, paths, "sockethelper",
+			JS_NewString(l->jsc, optstring(ctx, "js_sockethelper", "./js/sockethelper.js")));
+		JS_SetPropertyStr(l->jsc, paths, "cluster",
+			JS_NewString(l->jsc, optstring(ctx, "js_cluster", "./js/cluster.js")));
+		JS_SetPropertyStr(l->jsc, paths, "gateserver",
+			JS_NewString(l->jsc, optstring(ctx, "js_gateserver", "./js/gateserver.js")));
+		JS_SetPropertyStr(l->jsc, paths, "http",
+			JS_NewString(l->jsc, optstring(ctx, "js_http", "./js/http.js")));
+		JS_SetPropertyStr(l->jsc, paths, "websocket",
+			JS_NewString(l->jsc, optstring(ctx, "js_websocket", "./js/websocket.js")));
+		JS_SetPropertyStr(l->jsc, g, "__snjs_lazy_paths", paths);
+		JS_FreeValue(l->jsc, g);
+		JSValue lret = JS_Eval(l->jsc, lazy_setup_js, strlen(lazy_setup_js),
+			"<lazy>", JS_EVAL_TYPE_GLOBAL);
+		if (JS_IsException(lret)) {
+			dump_exception(l, "snjs lazy setup error");
+			return 1;
+		}
+		JS_FreeValue(l->jsc, lret);
+	}
+
+	JS_RunGC(l->rt);
 
 	// args: "<script path> [param]"
 	char *tmp = skynet_malloc(sz + 1);
@@ -926,12 +1004,22 @@ snjs_create(void) {
 		skynet_free(l);
 		return NULL;
 	}
-	l->jsc = JS_NewContext(l->rt);
+	l->jsc = JS_NewContextRaw(l->rt);
 	if (l->jsc == NULL) {
 		JS_FreeRuntime(l->rt);
 		skynet_free(l);
 		return NULL;
 	}
+	JS_AddIntrinsicBaseObjects(l->jsc);
+	JS_AddIntrinsicDate(l->jsc);
+	JS_AddIntrinsicEval(l->jsc);
+	JS_AddIntrinsicRegExpCompiler(l->jsc);
+	JS_AddIntrinsicRegExp(l->jsc);
+	JS_AddIntrinsicJSON(l->jsc);
+	JS_AddIntrinsicMapSet(l->jsc);
+	JS_AddIntrinsicTypedArrays(l->jsc);
+	JS_AddIntrinsicPromise(l->jsc);
+	JS_AddIntrinsicBigInt(l->jsc);
 	JS_SetContextOpaque(l->jsc, l);
 	return l;
 }
