@@ -1,7 +1,6 @@
 {
   "thread": 4,
   "cpath": "./cservice/?.so",
-  "harbor": 0,
   "bootstrap": "snjs examples/ts_echo/ts_echo.js",
   "logservice": "logger",
   "profile": true

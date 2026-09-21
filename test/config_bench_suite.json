@@ -1,7 +1,6 @@
 {
   "thread": 4,
   "cpath": "./cservice/?.so;./test/cservice/?.so",
-  "harbor": 0,
   "bootstrap": "snjs test/service/bench_suite_main.js",
   "logservice": "logger",
   "profile": true

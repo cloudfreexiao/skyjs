@@ -4,6 +4,8 @@
 #include "skynet_env.h"
 #include "skynet_server.h"
 
+#include "quickjs.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -73,174 +75,61 @@ sigign(void) {
 }
 #endif
 
-/* ---------------------------------------------------------------- flat JSON */
+/* ---------------------------------------------------------- JSON config via QuickJS */
 
-static void
-skip_ws(const char **p) {
-	while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n') {
-		++*p;
-	}
-}
-
-// parse a JSON string literal at *p (which points at the opening quote),
-// write the unescaped content into out (nul-terminated), advance *p past
-// the closing quote. Returns 0 on success, -1 on error.
-// Supports the common escapes; \uXXXX is decoded for BMP codepoints, and
-// \uXXXX\uXXXX UTF-16 surrogate pairs are combined into a single
-// supplementary-plane codepoint (encoded as 4-byte UTF-8).
-static int
-json_string(const char **p, char *out, size_t outsz) {
-	const char * s = *p + 1;	// skip opening quote
-	size_t n = 0;
-	while (*s != '"') {
-		if (*s == '\0')
-			return -1;
-		char c = *s;
-		if (c == '\\') {
-			++s;
-			switch (*s) {
-			case '"': c = '"'; break;
-			case '\\': c = '\\'; break;
-			case '/': c = '/'; break;
-			case 'b': c = '\b'; break;
-			case 'f': c = '\f'; break;
-			case 'n': c = '\n'; break;
-			case 'r': c = '\r'; break;
-			case 't': c = '\t'; break;
-			case 'u': {
-				// \uXXXX escape; combine UTF-16 surrogate pairs into a
-				// single supplementary-plane codepoint before UTF-8 encoding
-				if (s[1] && s[2] && s[3] && s[4]) {
-					char hex[5] = { s[1], s[2], s[3], s[4], 0 };
-					uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
-					s += 4;	// s now points at the last hex digit
-					if (cp >= 0xD800 && cp <= 0xDBFF) {
-						// high surrogate: expect a following \uDCxx low surrogate
-						if (s[1] == '\\' && s[2] == 'u' &&
-							s[3] && s[4] && s[5] && s[6]) {
-							char hex2[5] = { s[3], s[4], s[5], s[6], 0 };
-							uint32_t cp2 = (uint32_t)strtoul(hex2, NULL, 16);
-							if (cp2 >= 0xDC00 && cp2 <= 0xDFFF) {
-								cp = 0x10000 + ((cp - 0xD800) << 10) + (cp2 - 0xDC00);
-								s += 6;	// consume the trailing \uXXXX
-							} else {
-								cp = 0xFFFD;	// replacement character
-							}
-						} else {
-							cp = 0xFFFD;
-						}
-					}
-					if (n + 4 >= outsz) return -1;
-					if (cp < 0x80) {
-						out[n++] = (char)cp;
-					} else if (cp < 0x800) {
-						out[n++] = (char)(0xc0 | (cp >> 6));
-						out[n++] = (char)(0x80 | (cp & 0x3f));
-					} else if (cp < 0x10000) {
-						out[n++] = (char)(0xe0 | (cp >> 12));
-						out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
-						out[n++] = (char)(0x80 | (cp & 0x3f));
-					} else {
-						out[n++] = (char)(0xf0 | (cp >> 18));
-						out[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
-						out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
-						out[n++] = (char)(0x80 | (cp & 0x3f));
-					}
-					++s;
-					continue;
-				}
-				return -1;
-			}
-			default:
-				return -1;
-			}
-			++s;
-		} else {
-			++s;
-		}
-		if (n + 1 >= outsz)
-			return -1;
-		out[n++] = c;
-	}
-	out[n] = '\0';
-	*p = s + 1;
-	return 0;
-}
-
-// walk a flat JSON object, calling setenv for every key/value pair.
-// numbers keep their literal text, booleans become "true"/"false",
-// null values are skipped (mirrors the original: nil never lands in the
- // Lua table either).
 static int
 parse_config(const char *json) {
-	const char * p = json;
-	skip_ws(&p);
-	if (*p != '{') {
-		fprintf(stderr, "Invalid config: expect '{' at top level\n");
+	JSRuntime *rt = JS_NewRuntime();
+	if (rt == NULL) {
+		fprintf(stderr, "Failed to create JS runtime for config parsing\n");
 		return 1;
 	}
-	++p;
-	char key[256];
-	char val[1024];
-	for (;;) {
-		skip_ws(&p);
-		if (*p == '}') {
-			break;
-		}
-		if (*p != '"') {
-			fprintf(stderr, "Invalid config: expect key string\n");
-			return 1;
-		}
-		if (json_string(&p, key, sizeof(key))) {
-			fprintf(stderr, "Invalid config: bad key string\n");
-			return 1;
-		}
-		skip_ws(&p);
-		if (*p != ':') {
-			fprintf(stderr, "Invalid config: expect ':' after key %s\n", key);
-			return 1;
-		}
-		++p;
-		skip_ws(&p);
-		if (*p == '"') {
-			if (json_string(&p, val, sizeof(val))) {
-				fprintf(stderr, "Invalid config: bad value of key %s\n", key);
-				return 1;
-			}
-			skynet_setenv(key, val);
-		} else if (strncmp(p, "true", 4) == 0) {
-			skynet_setenv(key, "true");
-			p += 4;
-		} else if (strncmp(p, "false", 5) == 0) {
-			skynet_setenv(key, "false");
-			p += 5;
-		} else if (strncmp(p, "null", 4) == 0) {
-			p += 4;	// skip, no env entry
-		} else {
-			// number (or anything atomic): copy the literal
-			const char * s = p;
-			while (*p && *p != ',' && *p != '}' && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
-				++p;
-			}
-			size_t n = (size_t)(p - s);
-			if (n == 0 || n >= sizeof(val)) {
-				fprintf(stderr, "Invalid config: bad value of key %s\n", key);
-				return 1;
-			}
-			memcpy(val, s, n);
-			val[n] = '\0';
-			skynet_setenv(key, val);
-		}
-		skip_ws(&p);
-		if (*p == ',') {
-			++p;
-		} else if (*p == '}') {
-			break;
-		} else {
-			fprintf(stderr, "Invalid config: expect ',' or '}' after key %s\n", key);
-			return 1;
-		}
+	JSContext *ctx = JS_NewContext(rt);
+	if (ctx == NULL) {
+		JS_FreeRuntime(rt);
+		fprintf(stderr, "Failed to create JS context for config parsing\n");
+		return 1;
 	}
+	JSValue obj = JS_ParseJSON(ctx, json, strlen(json), "<config>");
+	if (JS_IsException(obj)) {
+		fprintf(stderr, "Invalid config: JSON parse error\n");
+		JS_FreeContext(ctx);
+		JS_FreeRuntime(rt);
+		return 1;
+	}
+
+	/* store the raw JSON text so JS services can parse it with full types */
+	skynet_setenv("__json_config", json);
+
+	/* walk top-level keys; primitive values go into the flat env store
+	   (C consumers read thread/harbor/etc. as strings).  Objects and
+	   arrays are skipped — they live only in __json_config for JS. */
+	JSPropertyEnum *tab = NULL;
+	uint32_t len = 0;
+	if (JS_GetOwnPropertyNames(ctx, &tab, &len, obj,
+			JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) == 0) {
+		for (uint32_t i = 0; i < len; i++) {
+			JSValue val = JS_GetProperty(ctx, obj, tab[i].atom);
+			if (JS_IsNull(val) || JS_IsUndefined(val) || JS_IsObject(val)) {
+				JS_FreeValue(ctx, val);
+				continue;
+			}
+			const char *key = JS_AtomToCString(ctx, tab[i].atom);
+			const char *str = JS_ToCString(ctx, val);
+			if (key && str)
+				skynet_setenv(key, str);
+			if (str) JS_FreeCString(ctx, str);
+			if (key) JS_FreeCString(ctx, key);
+			JS_FreeValue(ctx, val);
+		}
+		for (uint32_t i = 0; i < len; i++)
+			JS_FreeAtom(ctx, tab[i].atom);
+		js_free(ctx, tab);
+	}
+
+	JS_FreeValue(ctx, obj);
+	JS_FreeContext(ctx);
+	JS_FreeRuntime(rt);
 	return 0;
 }
 
@@ -301,7 +190,8 @@ main(int argc, char *argv[]) {
 		return 1;
 	}
 	config.module_path = optstring("cpath","./cservice/?.so");
-	config.harbor = optint("harbor", 0);
+	// SkyJS 不实现 harbor(master-slave) 多节点，固定为单节点模式
+	config.harbor  = 0;
 	config.bootstrap = optstring("bootstrap","snjs service/bootstrap.js");
 	config.daemon = optstring("daemon", NULL);
 	config.logger = optstring("logger", NULL);

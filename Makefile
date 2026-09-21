@@ -100,7 +100,7 @@ SKYNET_SRC := skynet_handle.c skynet_module.c skynet_mq.c skynet_server.c \
 SKYNET_OBJ := $(addprefix build/skynet_,$(SKYNET_SRC:.c=.o))
 PLATFORM_OBJ := build/env.o build/main.o build/lua_stub.o
 
-# quickjs-ng core (statically linked into snjs.so, symbols hidden)
+# quickjs-ng core (linked into the main skyjs executable; .so modules resolve symbols at runtime)
 QJS_SRC := 3rd/quickjs/quickjs.c 3rd/quickjs/libregexp.c 3rd/quickjs/libunicode.c 3rd/quickjs/dtoa.c
 QJS_OBJ := $(addprefix build/qjs_,$(notdir $(QJS_SRC:.c=.o)))
 
@@ -120,10 +120,10 @@ build/skynet_%.o: 3rd/skynet/skynet-src/%.c | build
 	$(CC) $(CFLAGS) $(SKYNET_DEFINES) -I$(SKYNET_INC) -Iplatform -c $< -o $@
 
 build/%.o: platform/%.c | build
-	$(CC) $(CFLAGS) $(SKYNET_DEFINES) -I$(SKYNET_INC) -Iplatform -c $< -o $@
+	$(CC) $(CFLAGS) $(SKYNET_DEFINES) -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
 build/qjs_%.o: 3rd/quickjs/%.c | build
-	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -D_GNU_SOURCE -I3rd/quickjs -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -D_GNU_SOURCE -I3rd/quickjs -c $< -o $@
 
 build/snjs.o: service-src/snjs.c | build
 	$(CC) $(CFLAGS) -fPIC $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
@@ -175,7 +175,7 @@ build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.
 build/rt_bc.o: build/rt_bc.c | build
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(QJS_OBJ) $(IMPORT_LIB) | cservice
+cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(IMPORT_LIB) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $(OPENSSL_LDFLAGS) -o $@ $^ -lm
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped
@@ -195,7 +195,7 @@ else
 COMPAT_OBJ :=
 endif
 
-$(TARGET): $(SKYNET_OBJ) $(PLATFORM_OBJ) $(COMPAT_OBJ)
+$(TARGET): $(SKYNET_OBJ) $(PLATFORM_OBJ) $(COMPAT_OBJ) $(QJS_OBJ)
 	$(CC) $(CFLAGS) $(EXPORT_DYNAMIC) -o $@ $^ $(LIBS)
 
 # On MinGW the import library is produced together with skyjs.exe; declare the

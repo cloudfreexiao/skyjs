@@ -50,85 +50,84 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 
 ## 基线数据
 
-2026-09-21，Apple M4 Pro，macOS 26.6.2，commit 17e3081 之上（LuaTable 无损映射
-改造后工作树），repeat 3（中位数）。原始数据在 `build/bench/raw_*.json`，报告在
-`build/bench/report.md`。cluster/socket 阶段易受残留端口与 TIME_WAIT 影响偶发
-`no BENCH records`，重跑前先清 2528/2529/2530（`make bench` 已内置 free_cluster_ports，
-仍偶发时手动 `pkill -f "skyjs .*bench"` 后等待 TIME_WAIT 释放再跑）。
+2026-09-21，Apple M4 Pro，macOS 26.6.2，commit 0c2a305，repeat 3（中位数）。
+原始数据在 `build/bench/raw_*.json`，报告在 `build/bench/report.md`。cluster/socket
+阶段易受残留端口与 TIME_WAIT 影响偶发 `no BENCH records`，重跑前先清 2528/2529/2530
+（`make bench` 已内置 free_cluster_ports，仍偶发时手动 `pkill -f "skyjs .*bench"`
+后等待 TIME_WAIT 释放再跑）。
 
 ### core 阶段
 
 | case | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|
-| rt_text_c | 625,000 | 549,451 | 1.14 |
-| rt_text_self | 531,915 | 545,852 | 0.97 |
-| rt_text_s256 | 520,833 | 534,188 | 0.97 |
-| rt_text_s4k | 416,667 | 456,204 | 0.91 |
-| rt_text_s64k | 81,301 | 147,275 | 0.55 |
-| rt_lua_self | 133,333 | 271,370 | 0.49 |
-| send_self | 2,762,431 | 1,044,932 | 2.64 |
-| conc_self_k1 | 531,915 | 541,419 | 0.98 |
-| conc_self_k8 | 502,513 | 547,945 | 0.92 |
-| sp_t10 | 420,168 | 1,118,568 | 0.38 |
-| sp_t1000 | 31,847 | 36,792 | 0.87 |
-| sp_s64k | 250,000 | 62,696 | 3.99 |
-| startup_c | 500,000 | 3,054 | 163.70 |
-| startup_self | 8,772 | 3,327 | 2.64 |
-| timer_wake | 520,833 | 568,182 | 0.92 |
+| rt_text_c | 595,238 | 532,481 | 1.12 |
+| rt_text_self | 520,833 | 537,634 | 0.97 |
+| rt_text_s256 | 510,204 | 525,762 | 0.97 |
+| rt_text_s4k | 413,223 | 441,306 | 0.94 |
+| rt_text_s64k | 79,365 | 143,885 | 0.55 |
+| rt_lua_self | 127,389 | 266,667 | 0.48 |
+| send_self | 2,475,248 | 1,012,761 | 2.44 |
+| conc_self_k1 | 520,833 | 521,105 | 1.00 |
+| conc_self_k8 | 500,000 | 524,384 | 0.95 |
+| sp_t10 | 411,523 | 1,095,290 | 0.38 |
+| sp_t1000 | 31,847 | 36,657 | 0.87 |
+| sp_s64k | 250,000 | 62,500 | 4.00 |
+| startup_c | 250,000 | 2,926 | 85.45 |
+| startup_self | 7,576 | 2,980 | 2.54 |
+| timer_wake | 490,196 | 532,481 | 0.92 |
 
 ### cluster 阶段（cluster.call RTT，双向）
 
 | case | n | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|---|
-| cl_jsjs_100 | 5000 | 258.2 | n/a | n/a |
-| cl_jsjs_40k | 1000 | 278.8 | n/a | n/a |
-| cl_jsjs_pipe | 5000 | 32,680 | n/a | n/a |
-| cl_lualua_100 | 5000 | n/a | 273.0 | n/a |
-| cl_lualua_40k | 1000 | n/a | 651.0 | n/a |
-| cl_lualua_pipe | 5000 | n/a | 41,153 | n/a |
-| cl_mixed_100 | 5000 | 259.6 | 272.0 | 0.95 |
-| cl_mixed_40k | 1000 | 257.9 | 285.1 | 0.90 |
-| cl_mixed_pipe | 5000 | 40,650 | 34,060 | 1.19 |
+| cl_jsjs_100 | 5000 | 309.3 | n/a | n/a |
+| cl_jsjs_40k | 1000 | 449.0 | n/a | n/a |
+| cl_jsjs_pipe | 5000 | 31,749 | n/a | n/a |
+| cl_lualua_100 | 5000 | n/a | 351.9 | n/a |
+| cl_lualua_40k | 1000 | n/a | 629.4 | n/a |
+| cl_lualua_pipe | 5000 | n/a | 38,054 | n/a |
+| cl_mixed_100 | 5000 | 313.8 | 327.2 | 0.96 |
+| cl_mixed_40k | 1000 | 618.4 | 541.6 | 1.14 |
+| cl_mixed_pipe | 5000 | 29,070 | 30,600 | 0.95 |
 
 ### socket 阶段（TCP echo，responses/s）
 
 | case | n | skyjs msg/s | lua msg/s | ratio skyjs/lua |
 |---|---|---|---|---|
-| sock_64 | 100000 | 149,669 | 151,985 | 0.98 |
-| sock_4096 | 50000 | 89,648 | 89,321 | 1.00 |
-| sock_65536 | 10000 | 9,124 | 8,952 | 1.02 |
+| sock_64 | 100000 | 139,592 | 140,447 | 0.99 |
+| sock_4096 | 50000 | 87,303 | 82,687 | 1.06 |
+| sock_65536 | 10000 | 8,739 | 9,202 | 0.95 |
 
 ### 内存
 
 | 指标 | skyjs | lua |
 |---|---|---|
 | 框架记账（结束态） | 1.0 MB | 4.2 MB |
-| 进程 RSS 峰值 | 305.1 MB | 367.8 MB |
+| 进程 RSS 峰值 | 253.8 MB | 274.2 MB |
 
 ## 解读
 
-1. **小/中包消息传递与 lua 基本持平**：`rt_text_c` 1.12、`rt_text_self` 0.96、
-   `rt_text_s256` 0.99、`rt_text_s4k` 0.92、`conc_*` 0.95-1.02、
-   `timer_wake` 0.99——一问一答路径上两套语言层成本相当。
-2. **fire-and-forget JS 快约 2.6x**（`send_self` 2.58）：Lua 每条消息起 dispatch
+1. **小/中包消息传递与 lua 基本持平**：`rt_text_c` 1.12、`rt_text_self` 0.97、
+   `rt_text_s256` 0.97、`rt_text_s4k` 0.94、`conc_self_k1` 1.00、`conc_self_k8` 0.95、
+   `timer_wake` 0.92——一问一答路径上两套语言层成本相当。
+2. **fire-and-forget JS 快约 2.4x**（`send_self` 2.44）：Lua 每条消息起 dispatch
    协程，JS 只是普通函数调用。
-3. **大包（64KB）与 lua 互通路径有序列化开销**：`rt_text_s64k` 0.58、
-   `rt_lua_self` 0.51——JS 跨层需 UTF-8 编解码 + QuickJS 字符串拷贝，
+3. **大包（64KB）与 lua 互通路径有序列化开销**：`rt_text_s64k` 0.55、
+   `rt_lua_self` 0.48——JS 跨层需 UTF-8 编解码 + QuickJS 字符串拷贝，
    包体越大差距越明显。
 4. **table 序列化随 LuaTable 无损映射微调**：`sp_t1000`（1000 元素表 pack+unpack）
    ratio 0.87；`sp_t10`（10 元素表，10 万次）ratio 0.38，较改造前（Array 快路径 +
    luaarray 包装，约 0.43）略降——unpack 现统一构造 `LuaTable`（含 Map + 类实例），
    小表的对象分配成本占比更高，这是无歧义映射的既定权衡（换取空表不再塌缩、
    索引基准不再翻转）。`sp_s64k`（大包序列化）skyjs 约 4x 快，受益于 js-seri 零拷贝。
-5. **cluster 互通与 lua 基本持平**：`cl_mixed_100` 0.95、`cl_mixed_40k` 0.90（串行单发
-   受 Nagle/RTT 主导，两侧接近）；`cl_mixed_pipe` 1.19（8 路并发流水下 skyjs 反而领先，
-   依赖 Promise.all 保持多在途请求）。cluster.call 载荷为字节串，未走 LuaTable 路径，
-   与本次改造无关。
-6. **socket 三档与 lua 持平**：`sock_64` 0.98、`sock_4096` 1.00、`sock_65536` 1.02。
-7. **启动速度 skyjs 仍显著快于 lua**：`startup_c` 163x、`startup_self` 2.6x，
+5. **cluster 互通与 lua 基本持平**：`cl_mixed_100` 0.96、`cl_mixed_40k` 1.14（串行单发
+   受 Nagle/RTT 主导，两侧接近，40k 轮次波动较大）；`cl_mixed_pipe` 0.95（8 路并发
+   流水两侧基本持平）。cluster.call 载荷为字节串，未走 LuaTable 路径，与本次改造无关。
+6. **socket 三档与 lua 持平**：`sock_64` 0.99、`sock_4096` 1.06、`sock_65536` 0.95。
+7. **启动速度 skyjs 仍显著快于 lua**：`startup_c` 85x、`startup_self` 2.5x，
    得益于字节码预编译 vs lua require 加载路径（该指标绝对值受轮次波动影响较大）。
 8. **内存面框架记账 skyjs 优于 lua**：记账 1.0 vs 4.2MB；进程 RSS 峰值
-   305.1 vs 367.8MB（RSS 受 macOS 内存压缩与系统状态影响，轮次间波动大）。
+   253.8 vs 274.2MB（RSS 受 macOS 内存压缩与系统状态影响，轮次间波动大）。
 9. **绝对值跨时段可漂移**（机器状态、macOS 内存压缩等），ratio 更可靠。
 
 ## 已知限制

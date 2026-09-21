@@ -168,6 +168,9 @@ declare const skynet: {
     newservice(name: string, param?: string): number;
     self(): number;
     register(name: string): void;
+    /** 读取配置项：JSON 中存在的键返回原类型（number/boolean/嵌套对象/数组，深度冻结），
+     *  否则回退到扁平 env 字符串（如 C 侧默认值） */
+    getenv(key: string): any;
     now(): number;
     mem_stat(): number;
     pack(...vals: unknown[]): ArrayBuffer;

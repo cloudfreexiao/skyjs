@@ -78,7 +78,6 @@ async function main() {
     const cfg = {
         thread: 4,
         cpath: "./cservice/?.so;./test/cservice/?.so",
-        harbor: 0,
         bootstrap: "snjs test/service/longrun_main.js " + opts.minutes,
         logservice: "logger",
         profile: true,

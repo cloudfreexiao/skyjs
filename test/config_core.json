@@ -1,7 +1,6 @@
 {
   "thread": 4,
   "cpath": "./cservice/?.so;./test/cservice/?.so",
-  "harbor": 0,
   "bootstrap": "echo",
   "logservice": "logger",
   "profile": true

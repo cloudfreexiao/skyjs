@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 CASE=$1
 LOG=build/trim_log_$CASE.txt
 cat > build/config_trim.json <<EOF
-{ "thread": 4, "cpath": "./cservice/?.so;./test/cservice/?.so", "harbor": 0,
+{ "thread": 4, "cpath": "./cservice/?.so;./test/cservice/?.so",
   "bootstrap": "snjs test/service/bench_trim_main.js $CASE",
   "logservice": "logger", "profile": true }
 EOF

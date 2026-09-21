@@ -450,6 +450,34 @@
     };
     globalThis.console = console_obj;
 
+    // skynet.getenv: the C layer (platform/main.c) stashes the raw JSON config
+    // text under "__json_config" and flattens primitive top-level keys into the
+    // env store. We parse the raw text once (lazily) so JS callers get full
+    // types (numbers/booleans/nested objects/arrays); the parsed config is
+    // deep-frozen so it stays an immutable shared view. Keys absent from the
+    // JSON (e.g. C-side defaults set via optint/optstring) fall back to the
+    // flat env string via GETENV.
+    let _config = null;
+
+    function deep_freeze(obj) {
+        if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
+            Object.freeze(obj);
+            Object.values(obj).forEach(deep_freeze);
+        }
+        return obj;
+    }
+
+    function skynet_getenv(key) {
+        if (!_config) {
+            const raw = skynetcore.command("GETENV", "__json_config");
+            _config = deep_freeze(raw ? JSON.parse(raw) : {});
+        }
+        if (key in _config) {
+            return _config[key];
+        }
+        return skynetcore.command("GETENV", key);
+    }
+
     globalThis.skynet = {
         PTYPE_TEXT, PTYPE_RESPONSE, PTYPE_ERROR, PTYPE_LUA, PTYPE_CLIENT,
         start: function (start_func) { start_func(); },
@@ -464,6 +492,7 @@
         newservice: skynet_newservice,
         self: skynet_self,
         register: skynet_register,
+        getenv: skynet_getenv,
         now: function () { return skynetcore.now(); },
         mem_stat: function () { return skynetcore.mem(); },
         pack: function (...args) { return skynetcore.pack(...args); },
