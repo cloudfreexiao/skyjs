@@ -2,7 +2,7 @@ UNAME_S := $(shell uname)
 
 CC ?= cc
 AR ?= ar
-CFLAGS ?= -g -O2 -Wall
+CFLAGS ?= -g -O2 -Wall -fstack-protector-strong -Wformat -Wformat-security
 
 COMPAT_MINGW_DIR := 3rd/skynet/3rd/compat-mingw
 
@@ -27,6 +27,8 @@ ifeq ($(PLAT),macosx)
 
 else ifeq ($(PLAT),mingw)
   # Windows/MinGW — reuse skynet's compat-mingw layer
+  # --export-all-symbols is required: skynet cservice plugins (loaded via dlopen)
+  # need access to skynet_* API functions from the main executable.
   SHARED := -fPIC --shared -Wl,--export-all-symbols,--enable-auto-import
   LIBS := -static-libgcc -lpthread -lm -lws2_32 -lgdi32
   EXE_SUFFIX := .exe
@@ -66,8 +68,12 @@ OPENSSL_CFLAGS :=
 OPENSSL_LDFLAGS :=
 TLS_OBJ :=
 ifeq ($(TLS),openssl)
-  OPENSSL_CFLAGS := -I/opt/homebrew/opt/openssl/include -DUSE_OPENSSL
-  OPENSSL_LDFLAGS := -L/opt/homebrew/opt/openssl/lib -lssl -lcrypto
+  # OpenSSL install-prefix paths are overridable (environment or command line)
+  # for non-Homebrew layouts; -DUSE_OPENSSL is always injected regardless.
+  OPENSSL_INC ?= /opt/homebrew/opt/openssl/include
+  OPENSSL_LIB ?= /opt/homebrew/opt/openssl/lib
+  OPENSSL_CFLAGS := -I$(OPENSSL_INC) -DUSE_OPENSSL
+  OPENSSL_LDFLAGS := -L$(OPENSSL_LIB) -lssl -lcrypto
   TLS_OBJ := build/tls.o
 endif
 

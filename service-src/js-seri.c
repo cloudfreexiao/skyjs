@@ -77,10 +77,12 @@
 struct write_block {
 	JSRuntime *rt;   // backing memory comes from the runtime's accounting allocator
 	uint8_t *buf;
-	int len;
-	int cap;
+	int64_t len;
+	int64_t cap;
 	int oom;   // allocation failed: wb_push becomes a no-op, caller checks
 };
+
+#define WB_MAX_CAP (256 * 1024 * 1024)  // 256 MB hard ceiling for write_block
 
 struct read_block {
 	char *buffer;
@@ -92,9 +94,13 @@ inline static void
 wb_push(struct write_block *b, const void *buf, int sz) {
 	if (b->oom) return;
 	if (b->len + sz > b->cap) {
-		int ncap = b->cap * 2;
+		int64_t ncap = b->cap * 2;
 		while (ncap < b->len + sz) ncap *= 2;
-		uint8_t *nbuf = js_realloc_rt(b->rt, b->buf, ncap);
+		if (ncap > WB_MAX_CAP) {
+			b->oom = 1;
+			return;
+		}
+		uint8_t *nbuf = js_realloc_rt(b->rt, b->buf, (size_t)ncap);
 		if (nbuf == NULL) {
 			b->oom = 1;
 			return;
@@ -735,8 +741,9 @@ js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *
 	if (path == NULL) return JS_EXCEPTION;
 	FILE *f = fopen(path, "rb");
 	if (f == NULL) {
+		JSValue err = JS_ThrowTypeError(ctx, "can't open %s", path);
 		JS_FreeCString(ctx, path);
-		return JS_ThrowTypeError(ctx, "can't open %s", path);
+		return err;
 	}
 	fseek(f, 0, SEEK_END);
 	long sz = ftell(f);
@@ -767,12 +774,15 @@ js_seri_writefile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst 
 	}
 	FILE *f = fopen(path, "wb");
 	if (f == NULL) {
+		JSValue err = JS_ThrowTypeError(ctx, "can't write %s", path);
 		JS_FreeCString(ctx, path);
-		return JS_ThrowTypeError(ctx, "can't write %s", path);
+		return err;
 	}
-	fwrite(p, 1, sz, f);
+	size_t written = fwrite(p, 1, sz, f);
 	fclose(f);
 	JS_FreeCString(ctx, path);
+	if (written != sz)
+		return JS_ThrowInternalError(ctx, "write_file: incomplete write");
 	return JS_UNDEFINED;
 }
 

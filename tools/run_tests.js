@@ -187,7 +187,7 @@ async function run_seri(cfg, never, timeout_ms) {
     // the JS-packed file must survive the ORIGINAL unpacker: byte-level
     // compatibility is proven when the stock lua-seri can dump it back
     // (seri_main.js writes to this hardcoded path)
-    const dump = spawnSync(SERI_TOOL, ["dump", "/tmp/seri_js.bin"],
+    const dump = spawnSync(SERI_TOOL, ["dump", "build/seri_js.bin"],
         { cwd: ROOT, encoding: "utf8" });
     if (dump.status !== 0) {
         return { ok: false, why: "seri_tool dump crashed (status " + dump.status + ")" };

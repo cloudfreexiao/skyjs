@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #ifndef _WIN32
 #include <signal.h>
@@ -30,7 +31,7 @@ optint(const char *key, int opt) {
 	const char * str = skynet_getenv(key);
 	if (str == NULL) {
 		char tmp[20];
-		sprintf(tmp,"%d",opt);
+		snprintf(tmp, sizeof(tmp), "%d", opt);
 		skynet_setenv(key, tmp);
 		return opt;
 	}
@@ -84,8 +85,9 @@ skip_ws(const char **p) {
 // parse a JSON string literal at *p (which points at the opening quote),
 // write the unescaped content into out (nul-terminated), advance *p past
 // the closing quote. Returns 0 on success, -1 on error.
-// Supports the common escapes; \uXXXX is decoded for BMP, \uXXXX\uXXXX
-// surrogate pairs are kept simple (surrogate pair -> utf8).
+// Supports the common escapes; \uXXXX is decoded for BMP codepoints, and
+// \uXXXX\uXXXX UTF-16 surrogate pairs are combined into a single
+// supplementary-plane codepoint (encoded as 4-byte UTF-8).
 static int
 json_string(const char **p, char *out, size_t outsz) {
 	const char * s = *p + 1;	// skip opening quote
@@ -106,19 +108,41 @@ json_string(const char **p, char *out, size_t outsz) {
 			case 'r': c = '\r'; break;
 			case 't': c = '\t'; break;
 			case 'u': {
-				// \uXXXX (pass-through of BMP codepoint as UTF-8)
+				// \uXXXX escape; combine UTF-16 surrogate pairs into a
+				// single supplementary-plane codepoint before UTF-8 encoding
 				if (s[1] && s[2] && s[3] && s[4]) {
 					char hex[5] = { s[1], s[2], s[3], s[4], 0 };
-					unsigned cp = (unsigned)strtoul(hex, NULL, 16);
-					s += 4;
+					uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
+					s += 4;	// s now points at the last hex digit
+					if (cp >= 0xD800 && cp <= 0xDBFF) {
+						// high surrogate: expect a following \uDCxx low surrogate
+						if (s[1] == '\\' && s[2] == 'u' &&
+							s[3] && s[4] && s[5] && s[6]) {
+							char hex2[5] = { s[3], s[4], s[5], s[6], 0 };
+							uint32_t cp2 = (uint32_t)strtoul(hex2, NULL, 16);
+							if (cp2 >= 0xDC00 && cp2 <= 0xDFFF) {
+								cp = 0x10000 + ((cp - 0xD800) << 10) + (cp2 - 0xDC00);
+								s += 6;	// consume the trailing \uXXXX
+							} else {
+								cp = 0xFFFD;	// replacement character
+							}
+						} else {
+							cp = 0xFFFD;
+						}
+					}
 					if (n + 4 >= outsz) return -1;
 					if (cp < 0x80) {
 						out[n++] = (char)cp;
 					} else if (cp < 0x800) {
 						out[n++] = (char)(0xc0 | (cp >> 6));
 						out[n++] = (char)(0x80 | (cp & 0x3f));
-					} else {
+					} else if (cp < 0x10000) {
 						out[n++] = (char)(0xe0 | (cp >> 12));
+						out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+						out[n++] = (char)(0x80 | (cp & 0x3f));
+					} else {
+						out[n++] = (char)(0xf0 | (cp >> 18));
+						out[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
 						out[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
 						out[n++] = (char)(0x80 | (cp & 0x3f));
 					}

@@ -751,7 +751,8 @@ static JSValue js_crypt_random_bytes(JSContext *ctx, JSValueConst tv, int argc, 
 static JSValue js_crypt_randomkey(JSContext *ctx, JSValueConst tv, int argc, JSValueConst *argv) {
 	(void)tv;(void)argc;(void)argv;
 	uint8_t tmp[8]; char x=0; int i;
-	for(i=0;i<8;i++){tmp[i]=random()&0xff;x^=tmp[i];}
+	crypt_random_bytes(tmp, 8);
+	for(i=0;i<8;i++){x^=tmp[i];}
 	if(x==0) tmp[0]|=1;
 	return JS_NewArrayBufferCopy(ctx,tmp,8);
 }
@@ -859,9 +860,8 @@ static void register_openssl_crypto(JSContext *ctx, JSValue crypt);
 #endif
 
 void register_crypto_bridge(JSContext *ctx, JSValue global) {
-	static int seed_init = 0;
-	if (!seed_init) {
-		seed_init = 1;
+	static ATOM_INT seed_init = 0;
+	if (ATOM_CAS(&seed_init, 0, 1)) {
 		srandom((random() << 8) ^ (time(NULL) << 16) ^ getpid());
 	}
 	JSValue skynetcore = JS_GetPropertyStr(ctx, global, "skynetcore");

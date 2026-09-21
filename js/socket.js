@@ -57,6 +57,13 @@
             }
             return id;
         },
+        /**
+         * Initiate a TCP connection.
+         * NOTE: Only on_connect is registered at this stage. You MUST call
+         * socket.start(id, on_data, on_close, on_error) after connect resolves
+         * to receive error/close notifications. If the connection fails before
+         * start() is called, the error is silently dropped.
+         */
         connect(host, port, on_connect) {
             const id = sock.connect(String(host), port | 0);
             if (id >= 0) handlers.set(id, { on_connect });

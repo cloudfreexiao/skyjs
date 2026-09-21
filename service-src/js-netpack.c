@@ -160,30 +160,29 @@ read_size(uint8_t *buffer) {
 
 static void
 push_more(struct snjs *l, int fd, uint8_t *buffer, int size) {
-	if (size == 1) {
-		struct np_uncomplete *uc = save_uncomplete(l, fd);
-		uc->read = -1;
-		uc->header = *buffer;
-		return;
-	}
-	int pack_size = read_size(buffer);
-	buffer += 2;
-	size -= 2;
+	while (size > 0) {
+		if (size == 1) {
+			struct np_uncomplete *uc = save_uncomplete(l, fd);
+			uc->read = -1;
+			uc->header = *buffer;
+			return;
+		}
+		int pack_size = read_size(buffer);
+		buffer += 2;
+		size -= 2;
 
-	if (size < pack_size) {
-		struct np_uncomplete *uc = save_uncomplete(l, fd);
-		uc->read = size;
-		uc->pack.size = pack_size;
-		uc->pack.buffer = skynet_malloc(pack_size);
-		memcpy(uc->pack.buffer, buffer, size);
-		return;
-	}
-	np_push_data(l, fd, buffer, pack_size, 1);
+		if (size < pack_size) {
+			struct np_uncomplete *uc = save_uncomplete(l, fd);
+			uc->read = size;
+			uc->pack.size = pack_size;
+			uc->pack.buffer = skynet_malloc(pack_size);
+			memcpy(uc->pack.buffer, buffer, size);
+			return;
+		}
+		np_push_data(l, fd, buffer, pack_size, 1);
 
-	buffer += pack_size;
-	size -= pack_size;
-	if (size > 0) {
-		push_more(l, fd, buffer, size);
+		buffer += pack_size;
+		size -= pack_size;
 	}
 }
 

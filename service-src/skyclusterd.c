@@ -47,7 +47,7 @@
 #define COMBINE_T(t, v) ((uint8_t)((t) | ((v) << 3)))
 #define MAX_NODE 32
 #define MAX_CONN 64
-#define MAX_PENDING 256
+#define MAX_PENDING 1024
 #define MAX_NAME 64
 
 /* frame types (request) */
@@ -186,9 +186,19 @@ seri_pack_int(uint8_t *out, int64_t v) {
 		int32_t v32 = (int32_t)v;
 		memcpy(out + n, &v32, 4);
 		n += 4;
-	} else {
+	} else if (v < 0x100) {
 		out[n++] = COMBINE_T(2, 1);
 		out[n++] = (uint8_t)v;
+	} else if (v < 0x10000) {
+		out[n++] = COMBINE_T(2, 2);
+		uint16_t v16 = (uint16_t)v;
+		memcpy(out + n, &v16, 2);
+		n += 2;
+	} else {
+		out[n++] = COMBINE_T(2, 4);
+		int32_t v32 = (int32_t)v;
+		memcpy(out + n, &v32, 4);
+		n += 4;
 	}
 	return n;
 }
@@ -522,6 +532,7 @@ handle_request(struct clusterd *cd, struct conn *c, const uint8_t *frame, size_t
 		if (sz < 6) return;
 		{
 			size_t namelen = frame[1];
+			if (namelen >= MAX_NAME) return;
 			if (sz < namelen + 6) return;
 			memcpy(name, frame + 2, namelen);
 			name[namelen] = 0;
@@ -536,6 +547,7 @@ handle_request(struct clusterd *cd, struct conn *c, const uint8_t *frame, size_t
 		if (sz < 10) return;
 		{
 			size_t namelen = frame[1];
+			if (namelen >= MAX_NAME) return;
 			if (sz < namelen + 10) return;
 			memcpy(name, frame + 2, namelen);
 			name[namelen] = 0;
@@ -1047,5 +1059,15 @@ skyclusterd_create(void) {
 
 MODAPI void
 skyclusterd_release(struct clusterd *cd) {
+	for (int i = 0; i < MAX_NODE; i++) {
+		if (cd->nodes[i].used) {
+			node_clear_queue(&cd->nodes[i]);
+		}
+	}
+	for (int i = 0; i < MAX_CONN; i++) {
+		if (cd->conns[i].used) {
+			conn_close(cd, &cd->conns[i]);
+		}
+	}
 	skynet_free(cd);
 }

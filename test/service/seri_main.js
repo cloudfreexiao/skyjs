@@ -57,10 +57,10 @@ skynet.start(() => {
         }
         ok = check(byte_eq, "byte-exact roundtrip (len " + repacked.length + " vs " + ref.length + ")") && ok;
 
-        // JS -> file, later inspected with: test/seri_tool dump /tmp/seri_js.bin
-        skynetcore.write_file("/tmp/seri_js.bin", skynet.pack(
+        // JS -> file, later inspected with: test/seri_tool dump build/seri_js.bin
+        skynetcore.write_file("build/seri_js.bin", skynet.pack(
             "two", 1, new Map([["k", 5n], ["pi", 3.14]]), [1, new Map()]));
-        skynetcore.error("SERI wrote /tmp/seri_js.bin");
+        skynetcore.error("SERI wrote build/seri_js.bin");
 
         // PTYPE_LUA roundtrip between two JS services
         const sent = skynet.pack("msg", 42, [1, 2]);

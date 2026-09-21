@@ -51,11 +51,11 @@
             }
             case "open":
                 // ACCEPT: m.id is the newly accepted connection fd
-                client_number += 1;
                 if (client_number >= maxclient) {
                     sock.shutdown(m.id);
                     return;
                 }
+                client_number += 1;
                 if (use_nodelay) sock.nodelay(m.id);
                 connection.set(m.id, true);
                 user_handler.connect(m.id, m.data);
@@ -63,7 +63,7 @@
             case "close":
                 if (m.id !== listen_socket) {
                     client_number -= 1;
-                    if (connection.has(m.id)) connection.set(m.id, false);
+                    if (connection.has(m.id)) connection.delete(m.id);
                     if (user_handler.disconnect) user_handler.disconnect(m.id);
                 } else {
                     listen_socket = 0;

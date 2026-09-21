@@ -148,7 +148,7 @@ js_usablef(const void *ptr) {
 		return 0;
 	}
 	const struct js_block *b = (const struct js_block *)ptr - 1;
-	return b->size;
+	return b->size - JS_HDR;
 }
 
 static const JSMallocFunctions js_mf = {
@@ -568,6 +568,10 @@ worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t 
 	// LAUNCH during a foreign dispatch): re-anchor stack_top so QuickJS's
 	// stack-overflow check is measured against THIS thread's stack
 	JS_UpdateStackTop(l->rt);
+	if (ATOM_LOAD(&l->trap)) {
+		ATOM_STORE(&l->trap, 0);
+		skynet_error(l->ctx, "snjs: stale SIGNAL trap cleared");
+	}
 	if (type == PTYPE_SOCKET) {
 		// skynet_socket_message: {type, id, ud, buffer}; for DATA/UDP buffer is a
 		// fresh skynet_malloc block OWNED by this service (forward_message_tcp
@@ -819,10 +823,9 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	if (eval_runtime(l, optstring(ctx, "js_websocket", "./js/websocket.js"), "snjs websocket loader error") < 0) return 1;
 
 	// args: "<script path> [param]"
-	char tmp[512];
-	size_t n = sz < sizeof(tmp) - 1 ? sz : sizeof(tmp) - 1;
-	memcpy(tmp, args, n);
-	tmp[n] = '\0';
+	char *tmp = skynet_malloc(sz + 1);
+	memcpy(tmp, args, sz);
+	tmp[sz] = '\0';
 	char *sp = strchr(tmp, ' ');
 	const char *param = "";
 	if (sp) {
@@ -833,12 +836,14 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	char *code = read_file(tmp);
 	if (code == NULL) {
 		skynet_error(ctx, "snjs can't open script %s", tmp);
+		skynet_free(tmp);
 		return 1;
 	}
 	JSValue ret = JS_Eval(l->jsc, code, strlen(code), tmp, JS_EVAL_TYPE_GLOBAL);
 	skynet_free(code);
 	if (JS_IsException(ret)) {
 		dump_exception(l, "snjs load error");
+		skynet_free(tmp);
 		return 1;
 	}
 	JS_FreeValue(l->jsc, ret);
@@ -850,6 +855,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 		skynet_error(ctx, "snjs script %s must define globalThis.dispatch", tmp);
 		JS_FreeValue(l->jsc, dispatch);
 		JS_FreeValue(l->jsc, g);
+		skynet_free(tmp);
 		return 1;
 	}
 	l->dispatch = JS_DupValue(l->jsc, dispatch);
@@ -862,6 +868,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 			JSValue wrapped = JS_Call(l->jsc, wrap, JS_UNDEFINED, 1, warg);
 			if (JS_IsException(wrapped)) {
 				dump_exception(l, "snjs wrap error");
+				skynet_free(tmp);
 				return 1;
 			}
 			JS_FreeValue(l->jsc, l->dispatch);
@@ -872,6 +879,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	}
 	JS_FreeValue(l->jsc, dispatch);
 	JS_FreeValue(l->jsc, g);
+	skynet_free(tmp);
 
 	skynet_callback(ctx, l, worker_cb);
 	return 0;

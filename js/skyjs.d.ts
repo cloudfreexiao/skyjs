@@ -178,6 +178,13 @@ declare const skynet: {
 declare const socket: {
     listen(host: string, port: number, on_accept: (id: number, address: string) => void,
         backlog?: number): number;
+    /**
+     * Initiate a TCP connection.
+     * NOTE: Only on_connect is registered at this stage. You MUST call
+     * socket.start(id, on_data, on_close, on_error) after connect resolves
+     * to receive error/close notifications. If the connection fails before
+     * start() is called, the error is silently dropped.
+     */
     connect(host: string, port: number, on_connect?: (id: number) => void): number;
     /** 注册数据回调；不 resume socket（resume 用 resume()）。opts.binary 时
      *  on_data 收到原始 ArrayBuffer，否则解码为 UTF-8 字符串 */
@@ -272,7 +279,10 @@ declare const crypt: {
     // ---- Utility ----
     /** 生成 n 字节密码学安全随机数 */
     random_bytes(n: number): ArrayBuffer;
-    /** 逐字节异或；key 循环使用 */
+    /**
+     * XOR data with key. WARNING: This modifies `data` in-place and returns
+     * the same ArrayBuffer. If you need the original data, copy it first.
+     */
     xor_str(data: string | ArrayBuffer | ArrayBufferView,
         key: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
 
@@ -438,7 +448,7 @@ declare const httpc: {
         content?: string
     ): Promise<HttpcStream>;
 
-    /** URL 编码：保留 A-Za-z0-9_，其余 → %XX */
+    /** URL 编码：保留 A-Za-z0-9_-.~（RFC 3986 unreserved），其余 → %XX */
     escape(str: string): string;
     /** URL 路径解析：按 ? 分割，解码 path */
     url_parse(url: string): { path: string; query: string };

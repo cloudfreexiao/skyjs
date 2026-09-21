@@ -207,9 +207,14 @@
         if (!handle) return;
         const f = handle[method];
         if (!f) return;
-        if (a2 !== undefined) f(ws.id, a1, a2);
-        else if (a1 !== undefined) f(ws.id, a1);
-        else f(ws.id);
+        try {
+            if (a2 !== undefined) f(ws.id, a1, a2);
+            else if (a1 !== undefined) f(ws.id, a1);
+            else f(ws.id);
+        } catch (e) {
+            if (e === sockethelper.socket_error) throw e;
+            skynetcore.error("websocket handler." + method + " error: " + (e && e.stack || e));
+        }
     }
 
     // ---- server handshake (read_handshake) ----

@@ -10,7 +10,6 @@
 #include <quickjs.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdbool.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/bio.h>
@@ -111,19 +110,18 @@ static int bio_write_input(JSContext *ctx, BIO *in_bio, const uint8_t *data, siz
  * TLS bridge functions (registered on skynetcore.tls)
  * ================================================================ */
 
-static bool tls_is_init = false;
+static ATOM_INT tls_is_init = 0;
 
 /* tls.init() — idempotent OpenSSL initialization */
 static JSValue js_tls_init(JSContext *ctx, JSValueConst tv, int argc, JSValueConst *argv) {
 	(void)tv; (void)argc; (void)argv;
-	if (!tls_is_init) {
+	if (ATOM_CAS(&tls_is_init, 0, 1)) {
 		/* OpenSSL 3.x auto-inits; for 1.1.x compat do explicit init */
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 		SSL_library_init();
 		SSL_load_error_strings();
 		OpenSSL_add_all_algorithms();
 #endif
-		tls_is_init = true;
 	}
 	return JS_UNDEFINED;
 }
@@ -343,7 +341,12 @@ static JSValue js_tls_read(JSContext *ctx, JSValueConst tv, int argc, JSValueCon
 		if (r > 0) {
 			if (total + r > cap) {
 				while (total + r > cap) cap *= 2;
-				out = skynet_realloc(out, cap);
+				uint8_t *nout = skynet_realloc(out, cap);
+				if (!nout) {
+					skynet_free(out);
+					return JS_ThrowInternalError(ctx, "tls read: out of memory");
+				}
+				out = nout;
 			}
 			memcpy(out + total, tmp, r);
 			total += r;

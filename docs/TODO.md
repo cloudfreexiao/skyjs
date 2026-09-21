@@ -46,3 +46,9 @@
   换算；直接调 `skynetcore.command("TIMEOUT", ...)` 时注意单位。
 - quickjs Map 链表实现带来的大表 unpack O(n²)（见待办 3），当前契约下属
   引擎固有限制。
+
+## 已知设计限制（审计记录 2026-09）
+
+- **seri 主机字节序**: js-seri.c 和 lua-seri.c 均使用主机字节序存储多字节整数，不支持跨字节序异构集群。与原版 skynet 行为一致。
+- **QuickJS GC 暂停**: QuickJS 的 cycle collector 在大量临时对象时可能造成 worker 线程阻塞。可通过 `skynetcore.mem()` 监控。
+- **cluster session 回绕**: send_session 从 1 递增到 0x7FFFFFFF 后回绕，理论上存在碰撞窗口（概率 ~1.2e-7/次回绕）。与原版 clusterd 行为一致。

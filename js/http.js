@@ -487,7 +487,6 @@
             protocol = "http";
             rest = url;
         }
-        const host_header = rest;
         // separate path from host
         const slash = rest.indexOf("/");
         let host_part, path;
@@ -517,7 +516,10 @@
             if ((c >= 65 && c <= 90) ||   // A-Z
                 (c >= 97 && c <= 122) ||   // a-z
                 (c >= 48 && c <= 57) ||    // 0-9
-                c === 95) {                // _
+                c === 95 ||                // _
+                c === 45 ||                // -
+                c === 46 ||                // .
+                c === 126) {               // ~
                 out += s[i];
             } else {
                 // encode each UTF-8 byte as %XX
@@ -533,9 +535,16 @@
 
     function url_decode(str) {
         str = str.replace(/\+/g, " ");
-        return str.replace(/%([0-9A-Fa-f]{2})/g, function (_, hex) {
-            return String.fromCharCode(parseInt(hex, 16));
-        });
+        const bytes = [];
+        for (let i = 0; i < str.length; i++) {
+            if (str[i] === "%" && i + 2 < str.length) {
+                bytes.push(parseInt(str.substring(i + 1, i + 3), 16));
+                i += 2;
+            } else {
+                bytes.push(str.charCodeAt(i));
+            }
+        }
+        return new TextDecoder().decode(new Uint8Array(bytes));
     }
 
     function httpc_url_parse(url) {
@@ -810,27 +819,30 @@
         const key = pool_key_str(parsed.host, parsed.port, parsed.protocol);
         const timeout = httpc_obj.timeout || undefined;
 
-        let fd, reader;
-        const pooled = pool_get(key);
-        if (pooled) {
-            fd = pooled.fd;
-            reader = pooled.reader;
-        } else {
-            const conn = await open_connection(parsed, timeout);
-            fd = conn.fd;
-            reader = conn.reader;
-        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+            let fd, reader;
+            const pooled = (attempt === 0) ? pool_get(key) : null;
+            if (pooled) {
+                fd = pooled.fd;
+                reader = pooled.reader;
+            } else {
+                const conn = await open_connection(parsed, timeout);
+                fd = conn.fd;
+                reader = conn.reader;
+            }
 
-        try {
-            const result = await do_request_on(
-                reader, "HEAD", parsed.host_header, url,
-                recv_header_out, header
-            );
-            pool_put(key, fd, reader, result.header);
-            return result.status;
-        } catch (e) {
-            try { socket.close(fd); } catch (_) { /* ignore */ }
-            throw e;
+            try {
+                const result = await do_request_on(
+                    reader, "HEAD", parsed.host_header, url,
+                    recv_header_out, header
+                );
+                pool_put(key, fd, reader, result.header);
+                return result.status;
+            } catch (e) {
+                try { socket.close(fd); } catch (_) { /* ignore */ }
+                if (!pooled || attempt > 0) throw e;
+                // stale pooled connection, retry with fresh
+            }
         }
     };
 
@@ -861,6 +873,25 @@
             const status = result.status;
 
             // build stream object
+            const key = pool_key_str(
+                parsed.host, parsed.port, parsed.protocol
+            );
+
+            function finish_stream() {
+                stream._closed = true;
+                stream.connected = false;
+                // return to pool if connection looks reusable
+                const conn_hdr = result.header
+                    ? result.header["connection"] : null;
+                const is_close = typeof conn_hdr === "string" &&
+                    conn_hdr.toLowerCase() === "close";
+                if (!is_close && !reader.closed) {
+                    pool_put(key, fd, reader, result.header);
+                } else {
+                    try { socket.close(fd); } catch (_) { /* ignore */ }
+                }
+            }
+
             const stream = {
                 status: status,
                 header: result.header,
@@ -885,8 +916,7 @@
                                     trailer.lines, 0, stream.header
                                 );
                             }
-                            stream._closed = true;
-                            stream.connected = false;
+                            finish_stream();
                             return null;
                         }
                         const buf = await reader.read(sz);
@@ -894,18 +924,21 @@
                         return ab_to_str(buf);
                     } else if (remaining !== null) {
                         if (remaining <= 0) {
-                            stream._closed = true;
-                            stream.connected = false;
+                            finish_stream();
                             return null;
                         }
                         const to_read = Math.min(remaining, 8192);
                         const buf = await reader.read(to_read);
                         remaining -= to_read;
+                        if (remaining <= 0) {
+                            finish_stream();
+                        }
                         return ab_to_str(buf);
                     } else {
                         // read-all mode: one shot
                         stream._closed = true;
                         stream.connected = false;
+                        try { socket.close(fd); } catch (_) { /* ignore */ }
                         return null;
                     }
                 },

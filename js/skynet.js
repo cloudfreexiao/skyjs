@@ -82,13 +82,28 @@
                     if (b0 < 0x80) {
                         cp = b0;
                     } else if ((b0 & 0xe0) === 0xc0) {
-                        cp = ((b0 & 0x1f) << 6) | (bytes[i++] & 0x3f);
+                        if (i < n && (bytes[i] & 0xc0) === 0x80) {
+                            cp = ((b0 & 0x1f) << 6) | (bytes[i++] & 0x3f);
+                        } else {
+                            cp = 0xfffd;
+                        }
                     } else if ((b0 & 0xf0) === 0xe0) {
-                        cp = ((b0 & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) |
-                            (bytes[i++] & 0x3f);
+                        if (i + 1 < n && (bytes[i] & 0xc0) === 0x80 &&
+                            (bytes[i + 1] & 0xc0) === 0x80) {
+                            cp = ((b0 & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) |
+                                (bytes[i++] & 0x3f);
+                        } else {
+                            cp = 0xfffd;
+                        }
                     } else if ((b0 & 0xf8) === 0xf0) {
-                        cp = ((b0 & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) |
-                            ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+                        if (i + 2 < n && (bytes[i] & 0xc0) === 0x80 &&
+                            (bytes[i + 1] & 0xc0) === 0x80 &&
+                            (bytes[i + 2] & 0xc0) === 0x80) {
+                            cp = ((b0 & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) |
+                                ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+                        } else {
+                            cp = 0xfffd;
+                        }
                     } else {
                         cp = 0xfffd;
                     }
@@ -195,7 +210,9 @@
     }
 
     function skynet_fork(fn) {
-        return Promise.resolve().then(fn);
+        return Promise.resolve().then(fn).catch((e) => {
+            skynetcore.error("fork error: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
+        });
     }
 
     function skynet_newservice(name, param) {
