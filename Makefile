@@ -2,7 +2,21 @@ UNAME_S := $(shell uname)
 
 CC ?= cc
 AR ?= ar
-CFLAGS ?= -g -O2 -Wall -fstack-protector-strong -Wformat -Wformat-security
+
+# RELEASE=1 shrinks the artifact: drop -g, optimise for size, and let the
+# linker garbage-collect unused sections + strip symbols (see the link rule
+# below for the platform-specific -Wl flags).  Default build keeps -g -O2.
+ifeq ($(RELEASE),1)
+  # -Os + section GC (link rule) trims code; -fno-*-unwind-tables drops the
+  # ~115KB .eh_frame that C-only code never needs (skynet's deadloop trap uses
+  # setjmp/longjmp, not stack unwinding); -fno-ident drops the .comment tag.
+  # (LTO was measured to *not* help here — quickjs symbols are nearly all live.)
+  CFLAGS ?= -Os -Wall -fstack-protector-strong -Wformat -Wformat-security \
+    -ffunction-sections -fdata-sections \
+    -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-ident
+else
+  CFLAGS ?= -g -O2 -Wall -fstack-protector-strong -Wformat -Wformat-security
+endif
 
 COMPAT_MINGW_DIR := 3rd/skynet/3rd/compat-mingw
 
@@ -112,8 +126,43 @@ QJS_OBJ := $(addprefix build/qjs_,$(notdir $(QJS_SRC:.c=.o)))
 
 TARGET := skyjs$(EXE_SUFFIX)
 
+# STATIC=1: fold the production cservice modules into the skyjs executable
+# instead of loading them as .so at runtime (see platform/builtin_dl.c).  The
+# dlopen fallback stays intact, so test services and third-party plugins still
+# load dynamically.  Not supported on MinGW (no dlopen / interpose).
+BUILTIN_OBJ :=
+STATIC_LDFLAGS :=
+ifeq ($(STATIC),1)
+  BUILTIN_OBJ := build/snjs.o build/seri.o build/netpack.o build/crypto.o \
+    build/io.o $(TLS_OBJ) build/rt_bc.o build/svc_logger.o \
+    build/svc_skyclusterd.o build/builtin_dl.o
+  ifeq ($(PLAT),macosx)
+    STATIC_LDFLAGS := -Wl,-export_dynamic
+  else ifeq ($(PLAT),linux)
+    STATIC_LDFLAGS := -Wl,--wrap=dlopen
+  endif
+endif
+
+# RELEASE=1: garbage-collect unused sections + strip the final binary.  The
+# size flags (-Os / -ffunction-sections / -fdata-sections) are set with CFLAGS
+# above; here we add the matching link-time flags.
+RELEASE_LDFLAGS :=
+ifeq ($(RELEASE),1)
+  ifeq ($(PLAT),macosx)
+    RELEASE_LDFLAGS := -Wl,-dead_strip
+  else
+    RELEASE_LDFLAGS := -Wl,--gc-sections -Wl,-s
+  endif
+endif
+
+# STATIC folds logger/snjs/skyclusterd into skyjs, so those .so are not built;
+# the test services stay dynamic and exercise the dlopen fallback.
+ifeq ($(STATIC),1)
+all: $(TARGET) test/cservice/echo.so test/cservice/driver.so
+else
 all: $(TARGET) cservice/logger.so cservice/snjs.so cservice/skyclusterd.so \
 	test/cservice/echo.so test/cservice/driver.so
+endif
 
 build:
 	mkdir -p build
@@ -148,6 +197,18 @@ build/tls.o: service-src/js-tls.c | build
 
 build/io.o: service-src/js-io.c | build
 	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+
+# STATIC-only object builds of logger + skyclusterd (same flags as their .so
+# rules; distinct names avoid the build/skynet_%.o pattern that targets
+# skynet-src/).  builtin_dl.o uses the generic platform/%.o rule.
+# logger has no MODAPI visibility markers (unlike snjs/skyclusterd); its .so
+# rule relies on default visibility, so we must NOT hide symbols here or the
+# logger_* entry points won't reach skyjs's -rdynamic export table.
+build/svc_logger.o: 3rd/skynet/service-src/service_logger.c | build
+	$(CC) $(CFLAGS) -fPIC -I$(SKYNET_INC) -c $< -o $@
+
+build/svc_skyclusterd.o: service-src/skyclusterd.c | build
+	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -c $< -o $@
 
 # host compiler used to precompile the JS runtime libraries into bytecode
 # (quickjs-libc provides the std helpers qjsc references).
@@ -206,8 +267,8 @@ else
 COMPAT_OBJ :=
 endif
 
-$(TARGET): $(SKYNET_OBJ) $(PLATFORM_OBJ) $(COMPAT_OBJ) $(QJS_OBJ)
-	$(CC) $(CFLAGS) $(EXPORT_DYNAMIC) -o $@ $^ $(LIBS)
+$(TARGET): $(SKYNET_OBJ) $(PLATFORM_OBJ) $(COMPAT_OBJ) $(QJS_OBJ) $(BUILTIN_OBJ)
+	$(CC) $(CFLAGS) $(EXPORT_DYNAMIC) $(STATIC_LDFLAGS) $(RELEASE_LDFLAGS) -o $@ $^ $(LIBS) $(OPENSSL_LDFLAGS)
 
 # On MinGW the import library is produced together with skyjs.exe; declare the
 # dependency so cservice DLLs are linked only after it exists.

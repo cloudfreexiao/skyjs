@@ -30,7 +30,7 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 ## 目录结构
 
 ```text
-platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub)
+platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub) / builtin_dl.c(STATIC=1 用)
 service-src/    # snjs.c(QuickJS 服务加载器) / js-seri.c(序列化) / js-netpack.c(gate 帧缓冲) / skyclusterd.c(cluster)
 cservice/       # 编译产物 logger.so / snjs.so / skyclusterd.so（gitignore）
 js/             # JS 运行时库：skynet.js → socket.js → cluster.js → gateserver.js（按序加载）；
@@ -231,6 +231,18 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
     Windows 测试套件暂未启用（依赖 POSIX 信号等工具链）。
 - C 构建由 Makefile 负责（npm 管不到 C 编译链接）;package.json 管 JS 开发工具链
   （lint、TS 转译），运行时依旧零 npm 依赖，`node_modules/` 不进运行时。
+- **构建开关**（正交，可组合，默认全关）：
+  - `STATIC=1`：把 `logger`/`snjs`/`skyclusterd` 静态链进 `skyjs`，产出单文件。
+    实现遵守「不改 `3rd/`、也不接管 `skynet_module.c`」——仅在链接层 wrap `dlopen`
+    （`platform/builtin_dl.c`）：命中内置模块名的路径返回 `dlopen(NULL)`（主程序自身），
+    入口符号随 `-rdynamic`(Linux)/`-Wl,-export_dynamic`(macOS) 导出，原版 `dlsym` 原样命中；
+    其余路径走真实 `dlopen`（**保留 fallback**，测试服务与第三方 `.so` 仍动态加载）。
+    Linux 用 `-Wl,--wrap=dlopen`，macOS 用 dyld `__interpose`+`dlsym(RTLD_NEXT)` 取真实指针避免自递归。
+    扩展内置清单改 `builtin_dl.c` 的 `builtin[]`。MinGW 不支持。
+  - `RELEASE=1`：去 `-g`、`-O2`→`-Os`、`-ffunction-sections -fdata-sections` + 链接期
+    section GC(`--gc-sections`/`-dead_strip`) 与 strip；`skyjs` ~5.7MB→~1MB。
+  - 注意 logger（`service_logger.c`）无 `MODAPI` 可见性标注，其对象编译**不能**带
+    `-fvisibility=hidden`，否则 `logger_*` 进不了 `-rdynamic` 导出表（snjs/skyclusterd 有 MODAPI 不受影响）。
 - **TypeScript 接入**：运行时全局注入面的类型声明在 [js/skyjs.d.ts](../js/skyjs.d.ts)
   （与三个运行时库同源维护，**改注入面必须同步更新**）；TS 服务写好后用
   `examples/ts_echo/build.sh` 同款 esbuild 参数转译（`--bundle --format=iife

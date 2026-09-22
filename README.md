@@ -55,6 +55,23 @@ examples/ts_echo/build.sh      # TypeScript 示例转译(esbuild 仅构建期工
 ./skyjs examples/ts_echo/config.json   # 运行 TS 示例(预期输出 TS_ECHO_OK)
 ```
 
+### 构建开关
+
+| 开关 | 作用 | 说明 |
+|---|---|---|
+| `STATIC=1` | 静态内置 cservice | 把 `logger`/`snjs`/`skyclusterd` 三个生产模块链进 `skyjs`,不再产出对应 `.so`,得到单可执行文件。**保留 dlopen fallback**:测试服务与第三方 `.so` 仍按 `cpath` 动态加载。不支持 MinGW。 |
+| `RELEASE=1` | 缩小产物 | `-Os` + section GC + strip + 去 `.eh_frame`(`-fno-*-unwind-tables`)。`skyjs` 由 ~5.7MB 降至 ~856KB。 |
+| `TLS=openssl` | 启用 TLS/HTTPS/WSS | 链接系统 OpenSSL(动态)。 |
+
+```sh
+make STATIC=1 RELEASE=1                 # 又小又静态的单文件(~856KB)
+make STATIC=1 RELEASE=1 TLS=openssl     # 叠加 TLS(约 870KB,动态链 libssl/libcrypto)
+```
+
+原理:cservice 走 skynet 原版 `dlopen(cpath)`+`dlsym("<name>_create")` 加载(`3rd/skynet` 零修改)。`STATIC=1` 仅在链接层 wrap `dlopen`(`platform/builtin_dl.c`):命中内置模块名时返回 `dlopen(NULL)`(主程序自身),入口符号随 `-rdynamic`/`-export_dynamic` 导出,原版 `dlsym` 原样命中;其余路径走真实 `dlopen`。扩展内置清单只需改 `builtin[]` 数组。
+
+体积大头是 QuickJS 解释器本体(~578KB `.text`),基本不可再削(除非编译期裁剪 JS 特性,风险高)。LTO 实测无益(quickjs 符号几乎全被引用)。若还想更小,可选 `upx -9 ./skyjs` 压到 ~390KB——代价是启动时自解压(毫秒级)、个别安全软件可能误报,按需自取,未集成进构建。
+
 三平台已验证:
 
 | 平台 | 架构 | 构建命令 | 备注 |
