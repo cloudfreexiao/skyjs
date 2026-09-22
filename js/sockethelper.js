@@ -360,6 +360,17 @@
                                     orig_on_data(plaintext);
                                 }
                             };
+                            // The peer may have coalesced application data
+                            // (e.g. the WebSocket upgrade request) into the
+                            // same TCP segment as its final handshake record.
+                            // Such data is now buffered in the TLS input BIO
+                            // but would never trigger another _on_data (the
+                            // peer is waiting for our reply). Drain it now so
+                            // the awaiting reader sees it, avoiding a deadlock.
+                            const leftover = tls.read(session);
+                            if (leftover && leftover.byteLength > 0) {
+                                orig_on_data(leftover);
+                            }
                             resolve();
                         }
                     } catch (e) {

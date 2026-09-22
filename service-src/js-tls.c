@@ -330,19 +330,25 @@ static JSValue js_tls_finished(JSContext *ctx, JSValueConst tv, int argc, JSValu
 	return JS_NewBool(ctx, SSL_is_init_finished(ud->ssl));
 }
 
-/* tls.read(session, encrypted: AB) → AB (plaintext) */
+/* tls.read(session, encrypted?: AB) → AB (plaintext)
+ * The encrypted argument is optional: calling tls.read(session) with no
+ * (or an empty) buffer performs a drain-only read, pulling out any
+ * plaintext already buffered in the input BIO. This is required after a
+ * handshake completes when the peer coalesced application data into the
+ * same TCP segment as its final handshake record. */
 static JSValue js_tls_read(JSContext *ctx, JSValueConst tv, int argc, JSValueConst *argv) {
-	(void)tv; (void)argc;
+	(void)tv;
 	struct tls_context_ud *ud = JS_GetOpaque(argv[0], js_tls_ctx_class_id);
 	if (!ud || ud->is_close) return JS_ThrowTypeError(ctx, "tls.read: invalid session");
 
-	size_t enc_sz;
-	uint8_t *enc = JS_GetArrayBuffer(ctx, &enc_sz, argv[1]);
-	if (!enc) return JS_EXCEPTION;
-
-	if (enc_sz > 0) {
-		if (bio_write_input(ctx, ud->in_bio, enc, enc_sz) < 0) {
-			return JS_ThrowInternalError(ctx, "tls.read: BIO_write failed");
+	if (argc > 1 && JS_IsArrayBuffer(argv[1])) {
+		size_t enc_sz;
+		uint8_t *enc = JS_GetArrayBuffer(ctx, &enc_sz, argv[1]);
+		if (!enc) return JS_EXCEPTION;
+		if (enc_sz > 0) {
+			if (bio_write_input(ctx, ud->in_bio, enc, enc_sz) < 0) {
+				return JS_ThrowInternalError(ctx, "tls.read: BIO_write failed");
+			}
 		}
 	}
 
