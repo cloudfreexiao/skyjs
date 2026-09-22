@@ -56,10 +56,18 @@ skynet.timeout(1, async () => {
         {
             httpc.close_all_keepalive();
             const before = parseInt(await skynet.call(server, "text", "conn_count"), 10);
+            console.error("TLS keepalive: baseline conn_count=" + before);
+            console.error("TLS keepalive req1 sending");
             await httpc.get(base, "/echo", {}, null, tls_opts);
+            console.error("TLS keepalive resp1 OK");
+            console.error("TLS keepalive req2 sending");
             await httpc.get(base, "/echo", {}, null, tls_opts);
+            console.error("TLS keepalive resp2 OK");
+            console.error("TLS keepalive req3 sending");
             await httpc.get(base, "/echo", {}, null, tls_opts);
+            console.error("TLS keepalive resp3 OK");
             const after = parseInt(await skynet.call(server, "text", "conn_count"), 10);
+            console.error("TLS keepalive: final conn_count=" + after);
             check("https_keepalive", after - before === 1,
                 "conn_delta=" + (after - before) + " expected=1");
         }

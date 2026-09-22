@@ -139,7 +139,14 @@ static JSValue js_tls_ctx_new(JSContext *ctx, JSValueConst tv, int argc, JSValue
 	/* TLS 1.2 minimum, TLS 1.3 preferred */
 	SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION);
 
-	(void)is_server; /* method is generic TLS_method(); client/server state is set in newtls */
+	/* Disable session tickets to prevent TLS 1.3 post-handshake
+	 * NewSessionTicket messages from being coalesced with application
+	 * data in the same TCP segment, which can stall SSL_read on
+	 * certain OpenSSL builds (observed in CI macOS). */
+	SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TICKET);  /* TLS 1.2-: no ticket */
+	if (is_server) {
+		SSL_CTX_set_num_tickets(ssl_ctx, 0);          /* TLS 1.3: no NST */
+	}
 
 	struct ssl_ctx_ud *ud = js_mallocz(ctx, sizeof(*ud));
 	if (!ud) {
