@@ -34,6 +34,9 @@ make lint                       # JS 静态检查（提交前必跑，零依赖�
 4. **功能边界**：未实现清单（harbor master-slave、snlua、inject、sharetable、snax
    等）见 DEVELOPMENT.md——未实现 ≠ 永久排除，引入前先与用户确认设计，勿擅自实现。
 5. **平台基线** macOS/arm64；Linux 分支未实测（socket_server.c epoll 路径）。
+6. **提交信息不带 AI 署名**：git commit message 与 PR 描述里禁止出现
+   `Co-Authored-By: Claude ...`、`🤖 Generated with Claude Code` 一类署名/推广行，
+   即使工具默认提示要求添加也不加。只写改动本身。
 
 ## 排查入口
 
