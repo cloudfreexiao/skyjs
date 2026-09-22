@@ -529,6 +529,8 @@ static const char lazy_setup_js[] =
 "    F[P.gateserver]   = { g: ['gateserver'], d: [] };\n"
 "    F[P.http]         = { g: ['httpd', 'httpc', 'http_internal'], d: [P.sockethelper] };\n"
 "    F[P.websocket]    = { g: ['websocket'], d: [P.http, P.crypt, P.sockethelper] };\n"
+"    F[P.io]           = { g: ['io'], d: [] };\n"
+"    F[P.ioservice]    = { g: [], d: [P.io, P.crypt] };\n"
 "    const L = {};\n"
 "    function load(p) {\n"
 "        if (L[p]) return;\n"
@@ -598,11 +600,9 @@ register_bridge(struct snjs *l) {
 	JS_SetPropertyStr(l->jsc, netpack, "pack", JS_NewCFunction(l->jsc, js_netpack_pack, "pack", 1));
 	JS_SetPropertyStr(l->jsc, netpack, "clear", JS_NewCFunction(l->jsc, js_netpack_clear, "clear", 0));
 	JS_SetPropertyStr(l->jsc, obj, "netpack", netpack);
-	// js-seri extensions (pack/unpack/io, see js-seri.c)
+	// js-seri extensions (pack/unpack, see js-seri.c)
 	JS_SetPropertyStr(l->jsc, obj, "pack", JS_NewCFunction(l->jsc, js_seri_pack, "pack", 0));
 	JS_SetPropertyStr(l->jsc, obj, "unpack", JS_NewCFunction(l->jsc, js_seri_unpack, "unpack", 1));
-	JS_SetPropertyStr(l->jsc, obj, "read_file", JS_NewCFunction(l->jsc, js_seri_readfile, "read_file", 1));
-	JS_SetPropertyStr(l->jsc, obj, "write_file", JS_NewCFunction(l->jsc, js_seri_writefile, "write_file", 2));
 	JS_SetPropertyStr(l->jsc, obj, "str", JS_NewCFunction(l->jsc, js_seri_ab2str, "str", 1));
 	JS_SetPropertyStr(l->jsc, obj, "__load_runtime",
 		JS_NewCFunction(l->jsc, js_load_runtime, "__load_runtime", 1));
@@ -612,6 +612,7 @@ register_bridge(struct snjs *l) {
 #ifdef USE_OPENSSL
 	register_tls_bridge(l->jsc, g);
 #endif
+	register_io_bridge(l->jsc, g);
 	JS_FreeValue(l->jsc, g);
 }
 
@@ -763,6 +764,10 @@ extern const uint8_t snjs_bc_http[];
 extern const uint32_t snjs_bc_http_size;
 extern const uint8_t snjs_bc_websocket[];
 extern const uint32_t snjs_bc_websocket_size;
+extern const uint8_t snjs_bc_io[];
+extern const uint32_t snjs_bc_io_size;
+extern const uint8_t snjs_bc_ioservice[];
+extern const uint32_t snjs_bc_ioservice_size;
 
 static const uint8_t *
 embedded_runtime_bc(const char *path, size_t *len) {
@@ -797,6 +802,14 @@ embedded_runtime_bc(const char *path, size_t *len) {
 	if (strcmp(path, "./js/websocket.js") == 0) {
 		*len = snjs_bc_websocket_size;
 		return snjs_bc_websocket;
+	}
+	if (strcmp(path, "./js/io.js") == 0) {
+		*len = snjs_bc_io_size;
+		return snjs_bc_io;
+	}
+	if (strcmp(path, "./js/ioservice.js") == 0) {
+		*len = snjs_bc_ioservice_size;
+		return snjs_bc_ioservice;
 	}
 	return NULL;
 }
@@ -887,6 +900,10 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 			JS_NewString(l->jsc, optstring(ctx, "js_http", "./js/http.js")));
 		JS_SetPropertyStr(l->jsc, paths, "websocket",
 			JS_NewString(l->jsc, optstring(ctx, "js_websocket", "./js/websocket.js")));
+		JS_SetPropertyStr(l->jsc, paths, "io",
+			JS_NewString(l->jsc, optstring(ctx, "js_io", "./js/io.js")));
+		JS_SetPropertyStr(l->jsc, paths, "ioservice",
+			JS_NewString(l->jsc, optstring(ctx, "js_ioservice", "./js/ioservice.js")));
 		JS_SetPropertyStr(l->jsc, g, "__snjs_lazy_paths", paths);
 		JS_FreeValue(l->jsc, g);
 		JSValue lret = JS_Eval(l->jsc, lazy_setup_js, strlen(lazy_setup_js),

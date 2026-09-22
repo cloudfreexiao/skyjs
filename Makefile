@@ -146,6 +146,9 @@ build/crypto.o: service-src/js-crypto.c | build
 build/tls.o: service-src/js-tls.c | build
 	$(CC) $(CFLAGS) -fPIC $(OPENSSL_CFLAGS) -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
 
+build/io.o: service-src/js-io.c | build
+	$(CC) $(CFLAGS) -fPIC -fvisibility=hidden -I$(SKYNET_INC) -Iplatform -I3rd/quickjs -c $< -o $@
+
 # host compiler used to precompile the JS runtime libraries into bytecode
 # (quickjs-libc provides the std helpers qjsc references).
 # NOTE: kept below the `all` rule so plain `make` still builds everything.
@@ -164,10 +167,10 @@ endif
 
 # embedded bytecode of js/skynet.js + js/socket.js + js/crypt.js +
 # js/sockethelper.js + js/cluster.js + js/gateserver.js + js/http.js +
-# js/websocket.js: snjs loads these instead of parsing the sources per
-# service. Regenerated whenever the sources or the quickjs submodule
-# move; never committed.
-build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.js js/cluster.js js/gateserver.js js/http.js js/websocket.js | build
+# js/websocket.js + js/io.js + js/ioservice.js: snjs loads these instead of
+# parsing the sources per service. Regenerated whenever the sources or the
+# quickjs submodule move; never committed.
+build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.js js/cluster.js js/gateserver.js js/http.js js/websocket.js js/io.js js/ioservice.js | build
 	./build/qjsc -s -N snjs_bc_skynet -o build/bc_skynet.c js/skynet.js
 	./build/qjsc -s -N snjs_bc_socket -o build/bc_socket.c js/socket.js
 	./build/qjsc -s -N snjs_bc_crypt -o build/bc_crypt.c js/crypt.js
@@ -176,12 +179,14 @@ build/rt_bc.c: build/qjsc js/skynet.js js/socket.js js/crypt.js js/sockethelper.
 	./build/qjsc -s -N snjs_bc_gateserver -o build/bc_gateserver.c js/gateserver.js
 	./build/qjsc -s -N snjs_bc_http -o build/bc_http.c js/http.js
 	./build/qjsc -s -N snjs_bc_websocket -o build/bc_websocket.c js/websocket.js
-	cat build/bc_skynet.c build/bc_socket.c build/bc_crypt.c build/bc_sockethelper.c build/bc_cluster.c build/bc_gateserver.c build/bc_http.c build/bc_websocket.c > $@
+	./build/qjsc -s -N snjs_bc_io -o build/bc_io.c js/io.js
+	./build/qjsc -s -N snjs_bc_ioservice -o build/bc_ioservice.c js/ioservice.js
+	cat build/bc_skynet.c build/bc_socket.c build/bc_crypt.c build/bc_sockethelper.c build/bc_cluster.c build/bc_gateserver.c build/bc_http.c build/bc_websocket.c build/bc_io.c build/bc_ioservice.c > $@
 
 build/rt_bc.o: build/rt_bc.c | build
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o $(TLS_OBJ) build/rt_bc.o $(IMPORT_LIB) | cservice
+cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o build/io.o $(TLS_OBJ) build/rt_bc.o $(IMPORT_LIB) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden -o $@ $^ $(OPENSSL_LDFLAGS) -lm
 
 # reference tool: original lua-seri.c linked with the stock Lua 5.5.1 shipped

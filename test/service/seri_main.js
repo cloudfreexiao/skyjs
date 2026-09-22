@@ -17,7 +17,7 @@ skynet.start(() => {
     skynet.dispatch("text", async (msg) => {
         if (msg !== "start") return "OK";
 
-        const ref = new Uint8Array(skynetcore.read_file("build/seri_ref.bin"));
+        const ref = new Uint8Array(io.read_file("build/seri_ref.bin"));
         const vals = skynet.unpack(ref.buffer);
         let ok = true;
         ok = check(vals[0] === null, "nil") && ok;
@@ -58,7 +58,7 @@ skynet.start(() => {
         ok = check(byte_eq, "byte-exact roundtrip (len " + repacked.length + " vs " + ref.length + ")") && ok;
 
         // JS -> file, later inspected with: test/seri_tool dump build/seri_js.bin
-        skynetcore.write_file("build/seri_js.bin", skynet.pack(
+        io.write_file("build/seri_js.bin", skynet.pack(
             "two", 1, new Map([["k", 5n], ["pi", 3.14]]), [1, new Map()]));
         skynetcore.error("SERI wrote build/seri_js.bin");
 

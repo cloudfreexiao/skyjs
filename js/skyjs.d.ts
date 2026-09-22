@@ -61,8 +61,26 @@ declare const skynetcore: {
     unpack(buf: ArrayBuffer | string): unknown[];
     /** ArrayBuffer 按 UTF-8 解码为字符串 */
     str(buf: ArrayBuffer): string;
-    read_file(path: string): ArrayBuffer | null;
-    write_file(path: string, data: ArrayBuffer): void;
+    /** C-layer synchronous I/O primitives (js-io.c) */
+    io: {
+        read_file(path: string): ArrayBuffer;
+        write_file(path: string, data: ArrayBuffer): void;
+        append_file(path: string, data: ArrayBuffer): void;
+        exists(path: string): boolean;
+        stat(path: string): IoStatResult;
+        readdir(path: string): string[];
+        mkdir(path: string): void;
+        remove(path: string): void;
+        rename(old_path: string, new_path: string): void;
+        open(path: string, mode: string): number;
+        fread(handle: number, n: number): ArrayBuffer;
+        fwrite(handle: number, data: ArrayBuffer): void;
+        fseek(handle: number, offset: number, whence: number): void;
+        ftell(handle: number): number;
+        fclose(handle: number): void;
+        /** string → ArrayBuffer (UTF-8) */
+        str2ab(s: string): ArrayBuffer;
+    };
     socket: {
         listen(host: string, port: number, backlog?: number): number;
         connect(host: string, port: number): number;
@@ -136,8 +154,84 @@ declare const skynetcore: {
         x25519_shared?(secret_key: ArrayBuffer, peer_public: ArrayBuffer): ArrayBuffer;
     };
 
-    // skynetcore.tls: TLS C-layer 尚未实现（无 js-tls.c）。
-    // 待 Task #9 完成 TLS 支持后在此补充声明。
+    // skynetcore.tls: TLS C-layer（js-tls.c）
+};
+
+// --------------- io stat result ---------------
+
+interface IoStatResult {
+    size: number;
+    mtime: number;
+    is_dir: boolean;
+    is_file: boolean;
+    mode: number;
+}
+
+// --------------- io (js/io.js) ---------------
+
+/** File handle returned by io.open() */
+declare class IoFile {
+    /** 读取 n 字节 */
+    read(n: number): ArrayBuffer;
+    /** 写入数据 */
+    write(data: string | ArrayBuffer | ArrayBufferView): void;
+    /** 移动文件指针；whence: 0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END */
+    seek(offset: number, whence?: number): void;
+    /** 返回当前文件指针位置 */
+    tell(): number;
+    /** 关闭文件 */
+    close(): void;
+}
+
+declare const io: {
+    // ---- whole-file (synchronous) ----
+    /** 读取文件全部内容，返回 ArrayBuffer */
+    read_file(path: string): ArrayBuffer;
+    /** 读取文件全部内容，返回 UTF-8 字符串 */
+    read_text_file(path: string): string;
+    /** 写入文件（覆盖），data 可为 string/ArrayBuffer/TypedArray */
+    write_file(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
+    /** 追加写入文件 */
+    append_file(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
+
+    // ---- metadata / directory (synchronous) ----
+    /** 文件/目录是否存在 */
+    exists(path: string): boolean;
+    /** 获取文件/目录状态信息 */
+    stat(path: string): IoStatResult;
+    /** 列出目录内容 */
+    readdir(path: string): string[];
+    /** 创建目录；recursive=true 递归创建多级目录 */
+    mkdir(path: string, recursive?: boolean): void;
+    /** 删除文件或空目录 */
+    remove(path: string): void;
+    /** 重命名/移动文件 */
+    rename(old_path: string, new_path: string): void;
+
+    // ---- streaming File ----
+    /** 打开文件，返回 IoFile 实例；mode: "r"/"w"/"a"/"rb"/"wb" 等 */
+    open(path: string, mode?: string): IoFile;
+    File: typeof IoFile;
+
+    // ---- async API (must be called in skynet coroutine context) ----
+    /** 异步读取文件全部内容 */
+    read_file_async(path: string): Promise<ArrayBuffer>;
+    /** 异步读取文件为 UTF-8 字符串 */
+    read_text_file_async(path: string): Promise<string>;
+    /** 异步写入文件 */
+    write_file_async(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
+    /** 异步追加写入文件 */
+    append_file_async(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
+    /** 异步获取文件状态 */
+    stat_async(path: string): Promise<IoStatResult>;
+    /** 异步列出目录 */
+    readdir_async(path: string): Promise<string[]>;
+    /** 异步创建目录 */
+    mkdir_async(path: string, recursive?: boolean): Promise<void>;
+    /** 异步删除文件或空目录 */
+    remove_async(path: string): Promise<void>;
+    /** 异步重命名/移动文件 */
+    rename_async(path: string, new_path: string): Promise<void>;
 };
 
 declare const skynet: {

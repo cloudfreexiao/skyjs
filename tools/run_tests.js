@@ -46,6 +46,7 @@ const NEVER = [
     "HTTP FAIL",
     "WS FAIL",
     "TLS FAIL",
+    "IO FAIL",
     "dispatch rejected",
 ];
 
@@ -82,6 +83,8 @@ const SUITE = [
     { name: "cluster_fail", config: "test/config_cluster_fail.json", special: run_cluster_fail },
     { name: "crypt", config: "test/config_crypt.json",
         must: ["CRYPT ALL OK"] },
+    { name: "io", config: "test/config_io.json", timeout_ms: 20000,
+        must: ["IO ALL OK"] },
     { name: "http", config: "test/config_http.json", timeout_ms: 20000,
         must: ["HTTP ALL OK"] },
     { name: "ws", config: "test/config_ws.json", timeout_ms: 20000,

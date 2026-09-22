@@ -39,8 +39,6 @@ struct snjs {
 int js_seri_init(struct snjs *l);
 JSValue js_seri_pack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue js_seri_unpack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
-JSValue js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
-JSValue js_seri_writefile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 JSValue js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 // js-netpack.c exports (gateserver frame buffer; see register_bridge and worker_cb)
@@ -57,5 +55,8 @@ void register_crypto_bridge(JSContext *ctx, JSValue global);
 #ifdef USE_OPENSSL
 void register_tls_bridge(JSContext *ctx, JSValue global);
 #endif
+
+// js-io.c exports (io namespace, see register_io_bridge)
+void register_io_bridge(JSContext *ctx, JSValue global);
 
 #endif

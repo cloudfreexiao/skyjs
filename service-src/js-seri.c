@@ -733,59 +733,6 @@ js_seri_unpack(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *ar
 	return out;
 }
 
-// read_file(path) -> ArrayBuffer (acceptance/testing aid)
-JSValue
-js_seri_readfile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-	(void)this_val; (void)argc;
-	const char *path = JS_ToCString(ctx, argv[0]);
-	if (path == NULL) return JS_EXCEPTION;
-	FILE *f = fopen(path, "rb");
-	if (f == NULL) {
-		JSValue err = JS_ThrowTypeError(ctx, "can't open %s", path);
-		JS_FreeCString(ctx, path);
-		return err;
-	}
-	fseek(f, 0, SEEK_END);
-	long sz = ftell(f);
-	fseek(f, 0, SEEK_SET);
-	JSValue ret = JS_NULL;
-	if (sz >= 0) {
-		uint8_t *buf = skynet_malloc(sz);
-		size_t rd = fread(buf, 1, sz, f);
-		ret = JS_NewArrayBufferCopy(ctx, buf, rd);
-		skynet_free(buf);
-	}
-	fclose(f);
-	JS_FreeCString(ctx, path);
-	return ret;
-}
-
-// write_file(path, ArrayBuffer)
-JSValue
-js_seri_writefile(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-	(void)this_val; (void)argc;
-	const char *path = JS_ToCString(ctx, argv[0]);
-	if (path == NULL) return JS_EXCEPTION;
-	size_t sz = 0;
-	uint8_t *p = JS_GetArrayBuffer(ctx, &sz, argv[1]);
-	if (p == NULL) {
-		JS_FreeCString(ctx, path);
-		return JS_EXCEPTION;
-	}
-	FILE *f = fopen(path, "wb");
-	if (f == NULL) {
-		JSValue err = JS_ThrowTypeError(ctx, "can't write %s", path);
-		JS_FreeCString(ctx, path);
-		return err;
-	}
-	size_t written = fwrite(p, 1, sz, f);
-	fclose(f);
-	JS_FreeCString(ctx, path);
-	if (written != sz)
-		return JS_ThrowInternalError(ctx, "write_file: incomplete write");
-	return JS_UNDEFINED;
-}
-
 // ab2str(ArrayBuffer) -> string (UTF-8 decode of raw bytes)
 JSValue
 js_seri_ab2str(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
