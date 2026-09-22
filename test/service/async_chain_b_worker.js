@@ -1,6 +1,35 @@
-// Task 3 acceptance: chain hop B. Sleeps 200ms to prove timers wake awaits.
+// Task 3 acceptance: chain hop B plus concurrent handler reentry.
+const c_h = skynetcore.int_command("LAUNCH", "snjs test/service/async_chain_c_worker.js");
+const x_h = skynetcore.int_command("LAUNCH", "snjs test/service/async_dual_worker.js");
+const REENTRY_PREFIX = "reentry:";
+const RESUME_PREFIX = "resume:";
+const DUAL_PREFIX = "dual:";
+
 skynet.start(() => {
     skynet.dispatch("text", async (msg) => {
+        if (msg.startsWith(REENTRY_PREFIX) && msg.endsWith("->B")) {
+            const token = msg.slice(REENTRY_PREFIX.length, -3);
+            const r = await skynet.call(c_h, "text", skynet.self() + "|" + token);
+            return "B1(" + r + ")";
+        }
+        if (msg.startsWith(RESUME_PREFIX)) {
+            const token = msg.slice(RESUME_PREFIX.length);
+            await skynet.sleep(10);
+            return "B2(" + token + ")";
+        }
+        if (msg.startsWith(DUAL_PREFIX) && msg.endsWith("->B")) {
+            const token = msg.slice(DUAL_PREFIX.length, -3);
+            const first_promise = skynet.call(x_h, "text", "first|" + token + "-first");
+            const second_promise = skynet.call(x_h, "text", "second|" + token + "-second");
+            const second = await second_promise;
+            const first = await first_promise;
+            const expected_first = "X(" + token + "-first)";
+            const expected_second = "X(" + token + "-second)";
+            if (first !== expected_first || second !== expected_second) {
+                throw new Error("dual call mismatch: " + first + "," + second);
+            }
+            return "BDUAL(" + first + "," + second + ")";
+        }
         await skynet.sleep(200);
         return "B(" + msg + ")";
     });

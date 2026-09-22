@@ -57,9 +57,10 @@ const SUITE = [
     { name: "echo", config: "test/config_echo.json",
         must: ["DRIVER RESP: JS_ECHO:hello_from_js"] },
     { name: "async", config: "test/config_async.json",
-        must: ["ASYNC RESULT: R1=ping|R2=A(B(go->B))|CONC=c0,c1,c2,c3,c4,c5,c6,c7,c8,c9|ERR=true"] },
+        must: ["ASYNC RESULT: R1=ping|R2=A(B(go->B))|REENTRY=A(B1(C(D(B2(left))))),A(B1(C(D(B2(right)))))|DUAL=A(BDUAL(X(pair-first),X(pair-second)))|CONC=c0,c1,c2,c3,c4,c5,c6,c7,c8,c9|ERR=true"] },
     { name: "deadloop", config: "test/config_deadloop.json", timeout_ms: 20000,
-        must: ["DRIVER ERROR from"] },
+        allow: ["KILL self"],
+        must: ["DRIVER ERROR from", "snjs pending job loop interrupted"] },
     { name: "oom", config: "test/config_oom.json",
         must: ["DRIVER RESP: OOM_CAUGHT:InternalError:out of memory"] },
     { name: "console", config: "test/config_console.json",
@@ -344,7 +345,8 @@ async function main() {
         log("== round " + round + "/" + opts.repeat + " ==");
         for (const c of cases) {
             const t0 = Date.now();
-            const never = NEVER;
+            const allowed = new Set(c.allow || []);
+            const never = NEVER.filter((marker) => !allowed.has(marker));
             const timeout_ms = c.timeout_ms || opts.timeout_ms;
             const r = c.special
                 ? await c.special(c.config, never, timeout_ms)

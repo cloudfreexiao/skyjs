@@ -35,9 +35,9 @@ skyjs/                      # 顶层项目(git 主仓库,运行时 CWD;顶层均
 | skynet 机制 | snjs 对应 |
 |---|---|
 | `lua_newstate(lalloc)` 内存统计/限额 | `JS_NewRuntime2(js_mf, l)` 头部记账分配器 + `js_memlimit` 配置 |
-| `lua_sethook` 死循环打断 | `JS_SetInterruptHandler` + `SIGNAL` 命令(实测 2 秒内打断) |
+| `lua_sethook` 死循环打断 | `JS_SetInterruptHandler` + `SIGNAL` 命令(实测 2 秒内打断)；pending job 之间也检查 trap，microtask 链失控同样可打断 |
 | 协程 session↔coroutine | session↔Promise(skynet.js `pending_calls`),await = yield |
-| 每消息 worker 线程归还 | dispatch 后 `JS_ExecutePendingJob` 排空(所有 await 挂在外部事件上) |
+| 每消息 worker 线程归还 | dispatch 后 `JS_ExecutePendingJob` 排空(所有 await 挂在外部事件上)；SIGNAL 命中失控链则退出该服务 |
 | lua-seri 消息(PTYPE_LUA) | js-seri.c 字节级兼容(int64→BigInt,table→Map) |
 
 ## 构建
@@ -108,9 +108,9 @@ skynet.start(() => {
 | 场景 | 命令 | 验证点 |
 |---|---|---|
 | 纯 C 内核 | `./skyjs test/config_core.json` | logger + C echo bootstrap + SIGINT |
-| JS echo/打断/OOM | `test/config_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环、memlimit OOM 可捕获 |
+| JS echo/打断/OOM | `test/config_echo.json` 等 3 个 | JS↔C 互 call、SIGNAL 打断死循环(含纯 microtask 链)、memlimit OOM 可捕获 |
 | console 面 | `test/config_console.json`(套件 console) | 各级别映射 skynet 日志；Map/BigInt/ArrayBuffer 递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
-| 异步核心 | `test/config_async.json` | 链式 await、10 并发挂起、PTYPE_ERROR 传播 |
+| 异步核心 | `test/config_async.json` | 链式 await、10 并发挂起、重入与双 session 响应隔离、PTYPE_ERROR 传播 |
 | socket 桥 | `test/config_socket.json` | JS TCP echo server + 客户端 + nc 外部互通；per-connection binary 以 ArrayBuffer 交付 |
 | gate/redirect | `test/config_gate.json` | C netpack 分帧重组、watchdog→agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
 | lua-seri 对拍 | `test/seri_tool gen build/seri_ref.bin` + `test/config_seri.json` | 字节级 roundtrip、BigInt、Map、PTYPE_LUA 服务间互通 |

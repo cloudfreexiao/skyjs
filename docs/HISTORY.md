@@ -127,3 +127,15 @@
     零漂移；js_mem 全程平坦（0.3MB，增长 0）；RSS 15.3MB→4.5MB（macOS 内存
     压缩归还页）——含每分钟 120 个临时服务创建/销毁下无泄漏，memstat 盲区
     在 30 分钟尺度上不可测（≤RSS 噪声）。
+11. **pending job 排空的 SIGNAL 边界**（行为变更，2026-09-22）：`worker_cb` 的
+    `JS_ExecutePendingJob` 排空循环补两项处理——job 返回 -1 时经 `dump_exception`
+    输出并消费异常；每个 job 之间检查 `trap`，命中则记录 `snjs pending job loop
+    interrupted` 并 `EXIT` 退出该服务。回归测试证明极短的 Promise job 可能执行
+    不到 10000 条字节码，QuickJS 的解释器轮询不触发，仅靠 `interrupt_handler`
+    无法打断纯 microtask 链；此前该链会永久占住 worker 且残留队列会在后续消息
+    中继续执行，故中途退出循环不够，必须退役服务。`run_tests.js` 为此新增
+    per-scenario `allow` 白名单（deadloop 场景预期出现 `KILL self`）。
+12. **async 验收补并发挂起覆盖**（2026-09-22）：新增 B→C→D 回调重入场景
+    （B 挂起等 C 时 D 再次调用 B）与双 session 场景（B 并发两个 `skynet.call`，
+    X 故意先回第二个再经 timer 回第一个），断言各自收到带 token 的响应，验证
+    session↔Promise 路由不会交叉错配。

@@ -13,10 +13,10 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 | 场景 | 配置 | 验证点 |
 |---|---|---|
 | 纯 C 内核 | `test/config_core.json` | logger + C echo bootstrap |
-| JS echo/打断/OOM | `test/config_echo.json`、`config_deadloop.json`、`config_oom.json` | JS↔C 互 call、SIGNAL 打断、memlimit |
+| JS echo/打断/OOM | `test/config_echo.json`、`config_deadloop.json`、`config_oom.json` | JS↔C 互 call、SIGNAL 打断(同步死循环 + microtask 链)、memlimit |
 | TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→LuaTable 往返断言(TS_ECHO_OK) |
 | console 面 | `test/config_console.json`(套件 console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
-| 异步核心 | `test/config_async.json` | 链式 await、并发挂起、PTYPE_ERROR |
+| 异步核心 | `test/config_async.json` | 链式 await、重入、双 session 响应隔离、并发挂起、PTYPE_ERROR |
 | socket 桥 | `test/config_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
 | gate/redirect | `test/config_gate.json` | C netpack 分帧/重组、watchdog-agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
 | lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_seri.json` | 字节级 roundtrip |
@@ -275,8 +275,10 @@ cluster.snax，也未与 gateserver 复用监听。
   connect 拒绝一条），非故障。
 - 内存：per-service memstat（`skynetcore.mem()`），`js_memlimit` 配 OOM 限额，
   OOM 表现为 JS 抛错可被捕获（见 `test/service/oom_worker.js`）。
-- 死循环：SIGNAL 命令打断机制，见 `test/service/deadloop_worker.js` 与 snjs.c 头注释
-  （注意：信号到达时若无 JS 在跑，陷阱会滞后到下一条消息）。
+- 死循环：SIGNAL 命令打断机制，见 `test/service/deadloop_worker.js`、
+  `test/service/microtask_deadloop_worker.js` 与 snjs.c 头注释（注意：信号到达时
+  若无 JS 在跑，陷阱会滞后到下一条消息；纯 microtask 链在 job 之间检查 trap，
+  命中后退出该服务，不会留下可在后续消息中恢复的队列）。
 - **KILL/跨服务命令参数是 `:hex` 格式**：内核 `tohandle()` 只认 `:十六进制`
   与 `.名字`，传十进制 handle 会被拒（仅一行 `Can't convert N to handle` 日志，
   极易淹没在噪音里导致操作静默失效）。正确写法

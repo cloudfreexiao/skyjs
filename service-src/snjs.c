@@ -26,6 +26,9 @@
  * QuickJS polls the handler inside interpreted loops, so this actually
  * fires. Caveat: if the signal arrives while no JS code is running, the
  * trap stays armed and the next dispatched message is interrupted instead.)
+ * The pending-job drain in worker_cb also checks the trap between jobs,
+ * because a chain of tiny jobs may run enough times to starve the worker
+ * without ever reaching a single in-script interrupt poll.
  */
 
 #include "skynet.h"
@@ -700,10 +703,24 @@ worker_cb(struct skynet_context *ctx, void *ud, int type, int session, uint32_t 
 		}
 	}
 	JS_FreeValue(l->jsc, ret);
-	// drive pending microtasks: every await point hangs on an external event,
-	// so this loop terminates before returning the worker thread to skynet.
+	// Drive pending microtasks. Tiny jobs may not execute enough bytecode for
+	// QuickJS's interrupt poll, so also observe SIGNAL between jobs. The queued
+	// chain cannot be unwound safely at that boundary; retire the service rather
+	// than leave jobs that could resume during a later message.
 	JSContext *c1;
-	while (JS_ExecutePendingJob(l->rt, &c1) > 0) {
+	int job_status = 0;
+	for (;;) {
+		if (ATOM_LOAD(&l->trap)) {
+			ATOM_STORE(&l->trap, 0);
+			skynet_error(l->ctx, "snjs pending job loop interrupted");
+			skynet_command(ctx, "EXIT", NULL);
+			break;
+		}
+		job_status = JS_ExecutePendingJob(l->rt, &c1);
+		if (job_status <= 0) break;
+	}
+	if (job_status < 0) {
+		dump_exception(l, "snjs pending job error");
 	}
 	return 0;
 }
