@@ -346,6 +346,7 @@ static JSValue js_tls_read(JSContext *ctx, JSValueConst tv, int argc, JSValueCon
 	uint8_t *out = skynet_malloc(cap);
 
 	while (1) {
+		size_t pending_before = BIO_pending(ud->in_bio);
 		int r = SSL_read(ud->ssl, tmp, sizeof(tmp));
 		if (r > 0) {
 			if (total + r > cap) {
@@ -363,6 +364,15 @@ static JSValue js_tls_read(JSContext *ctx, JSValueConst tv, int argc, JSValueCon
 			int err = SSL_get_error(ud->ssl, r);
 			ERR_clear_error();
 			if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+				/* If SSL_read consumed input (e.g. TLS 1.3 post-handshake
+				 * NewSessionTicket) without producing application data,
+				 * there may be more records in in_bio (e.g. the WebSocket
+				 * 101 response).  Retry only when pending strictly
+				 * decreased — guarantees termination since pending is
+				 * non-negative and bounded. */
+				if (BIO_pending(ud->in_bio) < pending_before) {
+					continue;
+				}
 				break;
 			}
 			if (err == SSL_ERROR_ZERO_RETURN) {
