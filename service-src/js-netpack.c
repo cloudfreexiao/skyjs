@@ -23,7 +23,7 @@
 #include "skynet.h"
 #include "skynet_malloc.h"
 #include "skynet_socket.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 
 #define QUEUESIZE 1024
 #define HASHSIZE 4096

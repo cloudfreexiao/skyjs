@@ -1,7 +1,0 @@
-{
-  "thread": 4,
-  "cpath": "./cservice/?.so;./test/cservice/?.so",
-  "bootstrap": "snjs test/service/async_main.js",
-  "logservice": "logger",
-  "profile": true
-}

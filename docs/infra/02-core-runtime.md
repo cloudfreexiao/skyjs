@@ -9,45 +9,45 @@
 
 ```js
 // 可取消 + 超时 call。opts 可选。
-skynet.call_ex(addr, typename, msg, opts?) -> Promise<reply>
-// opts = { signal?: AbortSignal, timeout_ms?: number, binary?: boolean }
+skynet.callEx(addr, typename, msg, opts?) -> Promise<reply>
+// opts = { signal?: AbortSignal, timeoutMs?: number, binary?: boolean }
 //  - signal 触发   → reject(ERR_CANCELLED)，并向对端发送 cancel 通知
-//  - timeout_ms 到 → reject(ERR_TIMEOUT)
+//  - timeoutMs 到 → reject(ERR_TIMEOUT)
 //  - binary=true  → 不解码，reply 原样为 ArrayBuffer
 
 skynet.features() -> object          // 见 01-conventions §5
-skynet.abort_controller() -> AbortController   // WHATWG 对齐；引擎缺失时用内建 polyfill
-skynet.deadline(timeout_ms) -> AbortSignal     // 定时自动 abort 的便捷 signal
+skynet.abortController() -> AbortController   // WHATWG 对齐；引擎缺失时用内建 polyfill
+skynet.deadline(timeoutMs) -> AbortSignal     // 定时自动 abort 的便捷 signal
 ```
 
-现有 `skynet.call` 保持不变（等价 `call_ex` 不带 opts）。
+现有 `skynet.call` 保持不变（等价 `callEx` 不带 opts）。
 
 ### late-response 处理
 
-- `pending_calls` 现以 `session -> {resolve, reject}` 路由（见 `js/skynet.js`）。
-- 扩展：取消/超时后从 `pending_calls` 删除该 session，并登记到 `abandoned_sessions`
-  （带过期时间的集合）。后到的 `PTYPE_RESPONSE/PTYPE_ERROR` 命中 `abandoned_sessions`
+- `pendingCalls` 现以 `session -> {resolve, reject}` 路由（见 `js/skynet.js`）。
+- 扩展：取消/超时后从 `pendingCalls` 删除该 session，并登记到 `abandonedSessions`
+  （带过期时间的集合）。后到的 `PTYPE_RESPONSE/PTYPE_ERROR` 命中 `abandonedSessions`
   时静默丢弃，不得错配到新请求，也不得抛 “No dispatch”。
 - owner service 侧提供 `cancel(session)` 约定消息类型，收到后尽快释放资源。
 
 ### cancel 传播协议
 
-- 请求消息头（lua payload 首字段或约定 envelope）携带 `req_id`。
-- 取消时向 owner service 发送 `{op:"cancel", req_id}`；owner 侧据 `req_id` 找到在途
+- 请求消息头（lua payload 首字段或约定 envelope）携带 `reqId`。
+- 取消时向 owner service 发送 `{op:"cancel", reqId}`；owner 侧据 `reqId` 找到在途
   原生任务并中止。未实现 cancel 的服务至少要在结果产出后被丢弃（由上面 late-response 兜底）。
 
 ## 2.2 二进制消息 wrapper（stable）
 
 - service 间大块二进制统一用 `ArrayBuffer` 直传：`skynet.send(addr, "lua", ab)` /
-  `skynet.call_ex(..., {binary:true})`，避免 base64（见现状：`js/io.js` 异步走 base64）。
+  `skynet.callEx(..., {binary:true})`，避免 base64（见现状：`js/io.js` 异步走 base64）。
 - 提供 envelope 助手，用固定小头 + 二进制体，避免把大 buffer 塞进 lua-seri Map：
 
 ```js
-skynet.frame_encode(header_obj, body_ab?) -> ArrayBuffer   // 小头 JSON + 长度前缀 + body
-skynet.frame_decode(ab) -> { header, body }                // body 为 ArrayBuffer 视图（零拷贝尽力而为）
+skynet.frameEncode(headerObj, bodyAb?) -> ArrayBuffer   // 小头 JSON + 长度前缀 + body
+skynet.frameDecode(ab) -> { header, body }                // body 为 ArrayBuffer 视图（零拷贝尽力而为）
 ```
 
-- 约定：header 只放小的控制字段（op、req_id、offset、eof、code…），大数据永远在 body。
+- 约定：header 只放小的控制字段（op、reqId、offset、eof、code…），大数据永远在 body。
 
 ## 2.3 `stream` 库（stable）
 
@@ -65,7 +65,7 @@ stream.readable(source) -> Readable
 // source = {
 //   pull(n, ctx) -> Promise<ArrayBuffer|null>,  // 返回 null 表示 EOF
 //   cancel(reason)?,                              // 被取消时释放底层资源
-//   high_water_mark?: number                      // 缓冲字节上限，默认 1 MiB
+//   highWaterMark?: number                      // 缓冲字节上限，默认 1 MiB
 // }
 Readable.read(n?) -> Promise<ArrayBuffer|null>
 Readable.iterator() -> AsyncIterator<ArrayBuffer>
@@ -86,20 +86,20 @@ stream.writable(sink) -> Writable
 Writable.write(ab) -> Promise<void>       // resolve 表示已被下游接收（可继续）
 Writable.end() -> Promise<void>
 Writable.abort(reason?) -> Promise<void>
-Writable.need_drain -> boolean            // 水位标志
+Writable.needDrain -> boolean            // 水位标志
 ```
 
 ### pipe / 组合
 
 ```js
-stream.pipe(readable, writable, { signal?, timeout_ms? }) -> Promise<void>
+stream.pipe(readable, writable, { signal?, timeoutMs? }) -> Promise<void>
 stream.pipeline(...stages, { signal? }) -> Promise<void>   // 任一环失败→全链取消
 ```
 
 ### 跨 service 流
 
-- 生产者服务与消费者服务之间用 credit 协议：消费者先发 `credit(n_bytes)`，生产者按
-  credit 发 chunk（`frame_encode` 头含 `seq/eof`），消费者处理完再补 credit。
+- 生产者服务与消费者服务之间用 credit 协议：消费者先发 `credit(nBytes)`，生产者按
+  credit 发 chunk（`frameEncode` 头含 `seq/eof`），消费者处理完再补 credit。
 - 消费者断开（socket close / 取消）→ 立即向生产者发 `cancel`，生产者停止拉取并释放。
 
 ### 错误与取消
@@ -110,8 +110,8 @@ stream.pipeline(...stages, { signal? }) -> Promise<void>   // 任一环失败→
 ## 2.4 与现有 socket 的衔接
 
 `js/socket.js` / C socket bridge 增补（供 `webapp`/流控使用）：
-- 连接关闭通知：已有 `on_close/on_error`；补充“写缓冲水位/可写”信号（`on_writable`）与
-  暂停/恢复读取（`socket.pause(id)` / `socket.resume_read(id)`）。
+- 连接关闭通知：已有 `onClose/onError`；补充“写缓冲水位/可写”信号（`onWritable`）与
+  暂停/恢复读取（`socket.pause(id)` / `socket.resumeRead(id)`）。
 - 写队列水位查询：`socket.sendbuffer(id) -> bytes`（映射 skynet 的 sendbuffer 概念），
   供 `stream.writable` 判定背压。
 
@@ -124,7 +124,7 @@ stream.pipeline(...stages, { signal? }) -> Promise<void>   // 任一环失败→
 
 ## 2.6 验收
 
-- 1 GiB 流经 `stream.pipe` 传输：JS 堆稳定（缓冲不超过 high_water_mark × 常数）。
+- 1 GiB 流经 `stream.pipe` 传输：JS 堆稳定（缓冲不超过 highWaterMark × 常数）。
 - 消费者断开后 1 秒内生产者停止拉取并释放底层 fd/资源。
-- `call_ex` 超时/取消后：`pending_calls` 无残留；随后到达的迟到响应被丢弃且不告警为错配。
-- 与现有 `test/config_async.json` 场景不回归（链式 await、并发挂起、双 session 隔离）。
+- `callEx` 超时/取消后：`pendingCalls` 无残留；随后到达的迟到响应被丢弃且不告警为错配。
+- 与现有 `test/config-async.json` 场景不回归（链式 await、并发挂起、双 session 隔离）。

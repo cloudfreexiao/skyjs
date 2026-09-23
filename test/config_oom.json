@@ -1,8 +1,0 @@
-{
-  "thread": 4,
-  "cpath": "./cservice/?.so;./test/cservice/?.so",
-  "bootstrap": "snjs test/service/oom_main.js",
-  "logservice": "logger",
-  "profile": true,
-  "js_memlimit": "33554432"
-}

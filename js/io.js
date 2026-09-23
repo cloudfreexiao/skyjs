@@ -1,5 +1,5 @@
 // skyjs synchronous file I/O bridge (Phase B).
-// Loaded by snjs (env key "js_io", default "./js/io.js").
+// Loaded by snjs (env key "jsIo", default "./js/io.js").
 // Wraps the C-layer skynetcore.io.* primitives with convenience sugar:
 //   - read_file / read_text_file / write_file / append_file (whole-file)
 //   - exists / stat / readdir / mkdir / remove / rename (metadata)
@@ -11,7 +11,7 @@
 
     // ---- data coercion helper ----
     // Accepts string | ArrayBuffer | TypedArray, returns ArrayBuffer.
-    function to_ab(data) {
+    function toAb(data) {
         if (data instanceof ArrayBuffer) return data;
         if (ArrayBuffer.isView(data)) return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
         if (typeof data === "string") return cio.str2ab(data);
@@ -20,20 +20,20 @@
 
     // ---- whole-file ----
 
-    function read_file(path) {
-        return cio.read_file(path);
+    function readFile(path) {
+        return cio.readFile(path);
     }
 
-    function read_text_file(path) {
-        return skynetcore.str(cio.read_file(path));
+    function readTextFile(path) {
+        return skynetcore.str(cio.readFile(path));
     }
 
-    function write_file(path, data) {
-        return cio.write_file(path, to_ab(data));
+    function writeFile(path, data) {
+        return cio.writeFile(path, toAb(data));
     }
 
-    function append_file(path, data) {
-        return cio.append_file(path, to_ab(data));
+    function appendFile(path, data) {
+        return cio.appendFile(path, toAb(data));
     }
 
     // ---- metadata / directory ----
@@ -72,8 +72,8 @@
         return cio.remove(path);
     }
 
-    function rename(old_path, new_path) {
-        return cio.rename(old_path, new_path);
+    function rename(oldPath, newPath) {
+        return cio.rename(oldPath, newPath);
     }
 
     // ---- streaming File class ----
@@ -88,7 +88,7 @@
         }
 
         write(data) {
-            return cio.fwrite(this._handle, to_ab(data));
+            return cio.fwrite(this._handle, toAb(data));
         }
 
         seek(offset, whence) {
@@ -117,69 +117,69 @@
     // These methods may only be called inside a skynet coroutine context
     // (skynet.fork / dispatch / timeout callbacks).
 
-    let _io_svc = 0;   // cached ioservice handle (launched once, lazily)
+    let ioSvc = 0;   // cached ioservice handle (launched once, lazily)
 
-    async function ensure_io_service() {
-        if (_io_svc !== 0) return _io_svc;
-        _io_svc = skynet.newservice("snjs js/ioservice.js");
-        return _io_svc;
+    async function ensureIoService() {
+        if (ioSvc !== 0) return ioSvc;
+        ioSvc = skynet.newservice("snjs js/ioservice.js");
+        return ioSvc;
     }
 
     // helper: call ioservice, unpack response, throw on failure
-    async function io_call(...pack_args) {
-        const svc = await ensure_io_service();
-        const resp = await skynet.call(svc, "lua", skynet.pack(...pack_args));
+    async function ioCall(...packArgs) {
+        const svc = await ensureIoService();
+        const resp = await skynet.call(svc, "lua", skynet.pack(...packArgs));
         const vals = skynet.unpack(resp);
         if (!vals[0]) throw new Error(vals[1] || "ioservice error");
         return vals[1];   // may be undefined for void ops
     }
 
-    async function read_file_async(path) {
-        const b64 = await io_call("read_file", path);
-        return crypt.base64_decode(b64);
+    async function readFileAsync(path) {
+        const b64 = await ioCall("read_file", path);
+        return crypt.base64Decode(b64);
     }
 
-    async function read_text_file_async(path) {
-        return await io_call("read_text_file", path);
+    async function readTextFileAsync(path) {
+        return await ioCall("read_text_file", path);
     }
 
-    async function write_file_async(path, data) {
-        const b64 = crypt.base64_encode(to_ab(data));
-        await io_call("write_file", path, b64);
+    async function writeFileAsync(path, data) {
+        const b64 = crypt.base64Encode(toAb(data));
+        await ioCall("write_file", path, b64);
     }
 
-    async function append_file_async(path, data) {
-        const b64 = crypt.base64_encode(to_ab(data));
-        await io_call("append_file", path, b64);
+    async function appendFileAsync(path, data) {
+        const b64 = crypt.base64Encode(toAb(data));
+        await ioCall("append_file", path, b64);
     }
 
-    async function stat_async(path) {
-        const json_str = await io_call("stat", path);
-        return json_str === null || json_str === undefined ? null : JSON.parse(json_str);
+    async function statAsync(path) {
+        const jsonStr = await ioCall("stat", path);
+        return jsonStr === null || jsonStr === undefined ? null : JSON.parse(jsonStr);
     }
 
-    async function readdir_async(path) {
-        const json_str = await io_call("readdir", path);
-        return JSON.parse(json_str);
+    async function readdirAsync(path) {
+        const jsonStr = await ioCall("readdir", path);
+        return JSON.parse(jsonStr);
     }
 
-    async function mkdir_async(path, recursive) {
-        await io_call("mkdir", path, !!recursive);
+    async function mkdirAsync(path, recursive) {
+        await ioCall("mkdir", path, !!recursive);
     }
 
-    async function remove_async(path) {
-        await io_call("remove", path);
+    async function removeAsync(path) {
+        await ioCall("remove", path);
     }
 
-    async function rename_async(old_path, new_path) {
-        await io_call("rename", old_path, new_path);
+    async function renameAsync(oldPath, newPath) {
+        await ioCall("rename", oldPath, newPath);
     }
 
     globalThis.io = {
-        read_file,
-        read_text_file,
-        write_file,
-        append_file,
+        readFile,
+        readTextFile,
+        writeFile,
+        appendFile,
         exists,
         stat,
         readdir,
@@ -189,14 +189,14 @@
         open,
         File,
         // async API (Phase C)
-        read_file_async,
-        read_text_file_async,
-        write_file_async,
-        append_file_async,
-        stat_async,
-        readdir_async,
-        mkdir_async,
-        remove_async,
-        rename_async,
+        readFileAsync,
+        readTextFileAsync,
+        writeFileAsync,
+        appendFileAsync,
+        statAsync,
+        readdirAsync,
+        mkdirAsync,
+        removeAsync,
+        renameAsync,
     };
 })();

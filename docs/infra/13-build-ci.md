@@ -19,10 +19,10 @@
 组合示例（桌面全量）：`make SQLITE=1 MEDIA=libav TAG=taglib SUBPROCESS=1 ARCHIVE=1 TLS=openssl`。
 移动端：`SUBPROCESS` 关，其余按需开，全静态。
 
-## 13.2 新库的构建接线（对齐现有 rt_bc 机制）
+## 13.2 新库的构建接线（对齐现有 rtBc 机制）
 
-- 新 JS 库（`js/db.js` 等）纳入 `build/rt_bc.c` 的 qjsc 预编译清单（见现有 Makefile
-  `build/rt_bc.c` 规则），与 skynet.js/socket.js 等同批生成字节码。
+- 新 JS 库（`js/db.js` 等）纳入 `build/rtBc.c` 的 qjsc 预编译清单（见现有 Makefile
+  `build/rtBc.c` 规则），与 skynet.js/socket.js 等同批生成字节码。
 - 新 C 源（`js-sqlite.c` 等）各自 `build/*.o` 规则，`-fvisibility=hidden`，按开关择性链入
   `cservice/snjs.so`（或 STATIC 时并入 `skyjs`）。
 - 新 env 键 `js_<lib>` 与懒加载 `F` 表登记（见 01-conventions §3）随之更新。
@@ -53,7 +53,7 @@
 | Android arm64/armv7/x86_64 | 交叉编译 + AAR 打包 | 宿主进程内最小启动/停止测试 |
 | iOS arm64 (+sim) | 交叉编译 + XCFramework | 最小启动/停止测试 |
 
-门禁：任一平台构建失败阻断合并；lint（`make lint`）沿用；新增许可证合规检查
+门禁：任一平台构建失败阻断合并；lint（`npm run lint`，eslint）沿用；新增许可证合规检查
 （`MEDIA_GPL` 构建单独标注，不进默认发布）。
 
 ## 13.6 验收

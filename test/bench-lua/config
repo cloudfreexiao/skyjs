@@ -1,0 +1,16 @@
+-- Config for the stock Lua skynet node used by tools/run-bench.js (all
+-- phases). CWD = skyjs/3rd/skynet (same layout as test/cluster-lua/config);
+-- ../../test/cservice reaches skyjs's own C test services (echo.so), which
+-- are protocol-agnostic and shared by both sides.
+-- Note: loaded by exact path (../../test/bench-lua/config), no extension,
+-- matching the test/cluster-lua/config convention.
+thread = 4
+harbor = 0
+logservice = "logger"
+profile = true
+bootstrap = "snlua bootstrap"
+start = "test/bench-lua/main"
+cpath = "./cservice/?.so;../../test/cservice/?.so"
+lua_path = "./lualib/?.lua;./lualib/?/init.lua"
+lua_cpath = "./luaclib/?.so"
+luaservice = "./?.lua;./service/?.lua;../../?.lua;../../test/bench-lua/?.lua"

@@ -18,7 +18,7 @@
  * Memory: JS_NewRuntime2(&mf, l) routes every QuickJS allocation through
  * a header-accounted allocator, so l->mem tracks the JS heap exactly and
  * l->mem_limit enforces skynet's memlimit semantics (allocation fails ->
- * JS throws OutOfMemory). js_memlimit config key sets the limit in bytes.
+ * JS throws OutOfMemory). jsMemLimit config key sets the limit in bytes.
  *
  * Deadloop protection: JS_SetInterruptHandler + the "SIGNAL" command.
  * snjs_signal(0) arms the trap; the next interrupt-handler poll aborts the
@@ -35,7 +35,7 @@
 #include "skynet_server.h"
 #include "skynet_socket.h"
 #include "atomic.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 
 #include <quickjs.h>
 
@@ -530,7 +530,7 @@ static const char lazy_setup_js[] =
 "    F[P.sockethelper] = { g: ['sockethelper'], d: [P.socket] };\n"
 "    F[P.cluster]      = { g: ['cluster'], d: [] };\n"
 "    F[P.gateserver]   = { g: ['gateserver'], d: [] };\n"
-"    F[P.http]         = { g: ['httpd', 'httpc', 'http_internal'], d: [P.sockethelper] };\n"
+"    F[P.http]         = { g: ['httpd', 'httpc', 'httpInternal'], d: [P.sockethelper] };\n"
 "    F[P.websocket]    = { g: ['websocket'], d: [P.http, P.crypt, P.sockethelper] };\n"
 "    F[P.io]           = { g: ['io'], d: [] };\n"
 "    F[P.ioservice]    = { g: [], d: [P.io, P.crypt] };\n"
@@ -579,13 +579,13 @@ register_bridge(struct snjs *l) {
 	JSValue obj = JS_NewObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, obj, "send", JS_NewCFunction(l->jsc, js_send, "send", 4));
 	JS_SetPropertyStr(l->jsc, obj, "command", JS_NewCFunction(l->jsc, js_command, "command", 2));
-	JS_SetPropertyStr(l->jsc, obj, "int_command", JS_NewCFunction(l->jsc, js_intcommand, "int_command", 2));
-	JS_SetPropertyStr(l->jsc, obj, "gen_id", JS_NewCFunction(l->jsc, js_genid, "gen_id", 0));
+	JS_SetPropertyStr(l->jsc, obj, "intCommand", JS_NewCFunction(l->jsc, js_intcommand, "intCommand", 2));
+	JS_SetPropertyStr(l->jsc, obj, "genId", JS_NewCFunction(l->jsc, js_genid, "genId", 0));
 	JS_SetPropertyStr(l->jsc, obj, "now", JS_NewCFunction(l->jsc, js_now, "now", 0));
 	JS_SetPropertyStr(l->jsc, obj, "error", JS_NewCFunction(l->jsc, js_error, "error", 1));
 	JS_SetPropertyStr(l->jsc, obj, "mem", JS_NewCFunction(l->jsc, js_mem, "mem", 0));
 	JS_SetPropertyStr(l->jsc, obj, "response", JS_NewCFunction(l->jsc, js_response, "response", 3));
-	JS_SetPropertyStr(l->jsc, obj, "error_response", JS_NewCFunction(l->jsc, js_error_response, "error_response", 2));
+	JS_SetPropertyStr(l->jsc, obj, "errorResponse", JS_NewCFunction(l->jsc, js_error_response, "errorResponse", 2));
 	JS_SetPropertyStr(l->jsc, obj, "redirect", JS_NewCFunction(l->jsc, js_redirect, "redirect", 5));
 	JSValue sock = JS_NewObject(l->jsc);
 	JS_SetPropertyStr(l->jsc, sock, "listen", JS_NewCFunction(l->jsc, js_sock_listen, "listen", 3));
@@ -595,7 +595,7 @@ register_bridge(struct snjs *l) {
 	JS_SetPropertyStr(l->jsc, sock, "close", JS_NewCFunction(l->jsc, js_sock_close, "close", 1));
 	JS_SetPropertyStr(l->jsc, sock, "shutdown", JS_NewCFunction(l->jsc, js_sock_shutdown, "shutdown", 1));
 	JS_SetPropertyStr(l->jsc, sock, "nodelay", JS_NewCFunction(l->jsc, js_sock_nodelay, "nodelay", 1));
-	JS_SetPropertyStr(l->jsc, sock, "netpack_mode", JS_NewCFunction(l->jsc, js_sock_netpack_mode, "netpack_mode", 0));
+	JS_SetPropertyStr(l->jsc, sock, "netpackMode", JS_NewCFunction(l->jsc, js_sock_netpack_mode, "netpackMode", 0));
 	JS_SetPropertyStr(l->jsc, obj, "socket", sock);
 	// js-netpack extensions (gateserver frame buffer, see js-netpack.c)
 	JSValue netpack = JS_NewObject(l->jsc);
@@ -759,8 +759,8 @@ optstring(struct skynet_context *ctx, const char *key, const char * str) {
  * js/cluster.js, js/gateserver.js, js/http.js and js/websocket.js;
  * see build/rt_bc.c).
  * Loading bytecode skips the per-service parse cost and the retained
- * source text. A non-default js_loader/js_socket/js_crypt/js_sockethelper/
- * js_cluster/js_gateserver/js_http/js_websocket env value falls back to
+ * source text. A non-default jsLoader/jsSocket/jsCrypt/jsSockethelper/
+ * jsCluster/jsGateserver/jsHttp/jsWebsocket env value falls back to
  * source eval,
  * as does an unreadable bytecode blob (submodule/version skew) --
  * behaviour stays identical either way.
@@ -876,7 +876,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	// thread that called JS_NewRuntime2 (the nested-LAUNCH case)
 	JS_UpdateStackTop(l->rt);
 
-	const char *limit = optstring(ctx, "js_memlimit", NULL);
+	const char *limit = optstring(ctx, "jsMemLimit", NULL);
 	if (limit) {
 		l->mem_limit = (size_t)strtoull(limit, NULL, 10);
 		if (l->mem_limit > 0) {
@@ -895,7 +895,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	// Preload the JS runtime core (skynet.js) unless overridden or absent.
 	// Its presence switches the service to managed mode: responses are sent
 	// from JS via __snjs_wrap, enabling async dispatch.
-	const char *loader = optstring(ctx, "js_loader", "./js/skynet.js");
+	const char *loader = optstring(ctx, "jsLoader", "./js/skynet.js");
 	int lr = eval_runtime(l, loader, "snjs loader error");
 	if (lr < 0) return 1;
 	if (lr > 0) l->js_managed = 1;
@@ -904,23 +904,23 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 		JSValue g = JS_GetGlobalObject(l->jsc);
 		JSValue paths = JS_NewObject(l->jsc);
 		JS_SetPropertyStr(l->jsc, paths, "socket",
-			JS_NewString(l->jsc, optstring(ctx, "js_socket", "./js/socket.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsSocket", "./js/socket.js")));
 		JS_SetPropertyStr(l->jsc, paths, "crypt",
-			JS_NewString(l->jsc, optstring(ctx, "js_crypt", "./js/crypt.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsCrypt", "./js/crypt.js")));
 		JS_SetPropertyStr(l->jsc, paths, "sockethelper",
-			JS_NewString(l->jsc, optstring(ctx, "js_sockethelper", "./js/sockethelper.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsSockethelper", "./js/sockethelper.js")));
 		JS_SetPropertyStr(l->jsc, paths, "cluster",
-			JS_NewString(l->jsc, optstring(ctx, "js_cluster", "./js/cluster.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsCluster", "./js/cluster.js")));
 		JS_SetPropertyStr(l->jsc, paths, "gateserver",
-			JS_NewString(l->jsc, optstring(ctx, "js_gateserver", "./js/gateserver.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsGateserver", "./js/gateserver.js")));
 		JS_SetPropertyStr(l->jsc, paths, "http",
-			JS_NewString(l->jsc, optstring(ctx, "js_http", "./js/http.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsHttp", "./js/http.js")));
 		JS_SetPropertyStr(l->jsc, paths, "websocket",
-			JS_NewString(l->jsc, optstring(ctx, "js_websocket", "./js/websocket.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsWebsocket", "./js/websocket.js")));
 		JS_SetPropertyStr(l->jsc, paths, "io",
-			JS_NewString(l->jsc, optstring(ctx, "js_io", "./js/io.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsIo", "./js/io.js")));
 		JS_SetPropertyStr(l->jsc, paths, "ioservice",
-			JS_NewString(l->jsc, optstring(ctx, "js_ioservice", "./js/ioservice.js")));
+			JS_NewString(l->jsc, optstring(ctx, "jsIoservice", "./js/ioservice.js")));
 		JS_SetPropertyStr(l->jsc, g, "__snjs_lazy_paths", paths);
 		JS_FreeValue(l->jsc, g);
 		JSValue lret = JS_Eval(l->jsc, lazy_setup_js, strlen(lazy_setup_js),
@@ -961,7 +961,7 @@ init_cb(struct snjs *l, struct skynet_context *ctx, const char * args, size_t sz
 	JS_FreeValue(l->jsc, ret);
 
 	JSValue g = JS_GetGlobalObject(l->jsc);
-	JS_SetPropertyStr(l->jsc, g, "snjs_param", JS_NewString(l->jsc, param));
+	JS_SetPropertyStr(l->jsc, g, "snjsParam", JS_NewString(l->jsc, param));
 	JSValue dispatch = JS_GetPropertyStr(l->jsc, g, "dispatch");
 	if (!JS_IsFunction(l->jsc, dispatch)) {
 		skynet_error(ctx, "snjs script %s must define globalThis.dispatch", tmp);

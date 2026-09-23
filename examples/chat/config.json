@@ -1,7 +1,7 @@
 {
   "thread": 4,
   "cpath": "./cservice/?.so",
-  "bootstrap": "snjs examples/chat/chat_server.js",
+  "bootstrap": "snjs examples/chat/chat-server.js",
   "logservice": "logger",
   "profile": true
 }

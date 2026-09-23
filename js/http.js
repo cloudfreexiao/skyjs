@@ -1,5 +1,5 @@
 // skyjs HTTP server + client with Keep-Alive connection pool (Task 6).
-// Loaded by snjs after sockethelper.js (env key "js_http", default
+// Loaded by snjs after sockethelper.js (env key "jsHttp", default
 // "./js/http.js"). Provides globalThis.httpd (server), globalThis.httpc
 // (client), and globalThis.http_internal (internal parsing functions
 // exported for websocket.js to reuse).
@@ -11,13 +11,13 @@
     "use strict";
 
     const LIMIT = 8192;
-    const text_decoder = new TextDecoder("utf-8");
-    const text_encoder = new TextEncoder();
+    const textDecoder = new TextDecoder("utf-8");
+    const textEncoder = new TextEncoder();
 
     // -------------------------------------------------- internal helpers
 
-    function ab_to_str(buf) {
-        return text_decoder.decode(new Uint8Array(buf));
+    function abToStr(buf) {
+        return textDecoder.decode(new Uint8Array(buf));
     }
 
     // --------------------------------------------- internal HTTP parsing
@@ -28,7 +28,7 @@
      * headers). Returns { lines: string[], ok: boolean }. Enforces an
      * 8192-byte header size limit (matching original LIMIT).
      */
-    async function recv_header(reader) {
+    async function recvHeader(reader) {
         const lines = [];
         let total = 0;
         while (true) {
@@ -51,7 +51,7 @@
      * appended. Duplicate headers are merged into arrays. Returns the
      * header object, or null on malformed input.
      */
-    function parse_header(lines, from, header) {
+    function parseHeader(lines, from, header) {
         if (!header) header = {};
         let name = null;
         for (let i = from; i < lines.length; i++) {
@@ -87,28 +87,28 @@
      * trailer headers. Enforces bodylimit. Returns { body, header } or
      * null on error.
      */
-    async function recv_chunked_body(reader, bodylimit, header) {
+    async function recvChunkedBody(reader, bodylimit, header) {
         const parts = [];
         let size = 0;
         while (true) {
-            const size_line = await reader.readline();
+            const sizeLine = await reader.readline();
             // chunk-size may have extensions after semicolon; ignore them
-            const semi = size_line.indexOf(";");
-            const sz_str = semi >= 0 ? size_line.substring(0, semi) : size_line;
-            const sz = parseInt(sz_str, 16);
+            const semi = sizeLine.indexOf(";");
+            const szStr = semi >= 0 ? sizeLine.substring(0, semi) : sizeLine;
+            const sz = parseInt(szStr, 16);
             if (isNaN(sz)) return null;
             if (sz === 0) break;
             size += sz;
             if (bodylimit && size > bodylimit) return null;
-            const chunk_buf = await reader.read(sz);
-            parts.push(ab_to_str(chunk_buf));
+            const chunkBuf = await reader.read(sz);
+            parts.push(abToStr(chunkBuf));
             // consume trailing CRLF after chunk data
             await reader.read(2);
         }
         // parse trailer headers (after the last 0-sized chunk)
-        const trailer = await recv_header(reader);
+        const trailer = await recvHeader(reader);
         if (trailer.ok && trailer.lines.length > 0) {
-            header = parse_header(trailer.lines, 0, header || {});
+            header = parseHeader(trailer.lines, 0, header || {});
         }
         return { body: parts.join(""), header: header };
     }
@@ -118,17 +118,17 @@
      * For responses with no content-length and no chunked encoding (e.g.
      * HTTP/1.0 close-delimited), attempts to read until socket close.
      */
-    async function recv_body(reader, code, header) {
-        const length_str = header["content-length"];
+    async function recvBody(reader, code, header) {
+        const lengthStr = header["content-length"];
         let length = null;
-        if (length_str !== undefined) {
-            length = parseInt(length_str, 10);
+        if (lengthStr !== undefined) {
+            length = parseInt(lengthStr, 10);
             if (isNaN(length)) length = null;
         }
         if (length !== null) {
             if (length === 0) return "";
             const buf = await reader.read(length);
-            return ab_to_str(buf);
+            return abToStr(buf);
         } else if (code === 204 || code === 304 || code < 200) {
             return "";
         } else {
@@ -139,7 +139,7 @@
             // drain already-buffered bytes
             if (reader.total > 0) {
                 const buf = await reader.read(reader.total);
-                parts.push(ab_to_str(buf));
+                parts.push(abToStr(buf));
             }
             // read more until the socket closes
             try {
@@ -149,12 +149,12 @@
                     parts.push("\r\n");
                 }
             } catch (e) {
-                if (e !== sockethelper.socket_error) throw e;
+                if (e !== sockethelper.socketError) throw e;
                 // socket closed: drain remaining buffered data
                 if (reader.total > 0) {
                     try {
                         const remaining = reader._consume(reader.total);
-                        parts.push(ab_to_str(remaining));
+                        parts.push(abToStr(remaining));
                     } catch (_) {
                         // ignore
                     }
@@ -166,7 +166,7 @@
 
     // ---------------------------------------------- HTTP status code table
 
-    const http_status_msg = {
+    const httpStatusMsg = {
         100: "Continue",
         101: "Switching Protocols",
         200: "OK",
@@ -214,22 +214,22 @@
     // HTTP server: read_request parses an incoming HTTP request from a
     // BufferedReader; write_response sends an HTTP response.
 
-    const httpd_obj = {};
+    const httpdObj = {};
 
     /**
      * Read and parse an HTTP request from `reader`.
      * Returns { code, url?, method?, header?, body? }.
      * On success code === 200; on error code is the HTTP error status.
      */
-    httpd_obj.read_request = async function (reader, bodylimit) {
+    httpdObj.readRequest = async function (reader, bodylimit) {
         try {
-            const hdr = await recv_header(reader);
+            const hdr = await recvHeader(reader);
             if (!hdr.ok) return { code: 413 };
             if (hdr.lines.length === 0) return { code: 400 };
 
             // parse request line: "METHOD URL HTTP/VERSION"
-            const request_line = hdr.lines[0];
-            const match = request_line.match(
+            const requestLine = hdr.lines[0];
+            const match = requestLine.match(
                 /^([A-Za-z]+)\s+(.*?)\s+HTTP\/(\d+\.\d+)$/
             );
             if (!match) return { code: 400 };
@@ -239,7 +239,7 @@
             const httpver = parseFloat(match[3]);
             if (httpver < 1.0 || httpver > 1.1) return { code: 505 };
 
-            const header = parse_header(hdr.lines, 1, {});
+            const header = parseHeader(hdr.lines, 1, {});
             if (!header) return { code: 400 };
 
             const mode = header["transfer-encoding"];
@@ -249,26 +249,26 @@
 
             let body = "";
             if (mode === "chunked") {
-                const result = await recv_chunked_body(
+                const result = await recvChunkedBody(
                     reader, bodylimit, header
                 );
                 if (!result) return { code: 413 };
                 body = result.body;
             } else {
-                const length_str = header["content-length"];
-                if (length_str !== undefined) {
-                    const length = parseInt(length_str, 10);
+                const lengthStr = header["content-length"];
+                if (lengthStr !== undefined) {
+                    const length = parseInt(lengthStr, 10);
                     if (bodylimit && length > bodylimit) return { code: 413 };
                     if (length > 0) {
                         const buf = await reader.read(length);
-                        body = ab_to_str(buf);
+                        body = abToStr(buf);
                     }
                 }
             }
 
             return { code: 200, url, method, header, body };
         } catch (e) {
-            if (e === sockethelper.socket_error) return { code: 400 };
+            if (e === sockethelper.socketError) return { code: 400 };
             return { code: 400 };
         }
     };
@@ -281,14 +281,14 @@
      *   header: object of name→value (value may be array for multi-value)
      * Returns true on success, false on write error.
      */
-    httpd_obj.write_response = function (write_fn, statuscode, body, header) {
+    httpdObj.writeResponse = function (writeFn, statuscode, body, header) {
         try {
-            const code_str = String(statuscode);
-            const padded = code_str.length < 3
-                ? ("000" + code_str).slice(-3)
-                : code_str;
+            const codeStr = String(statuscode);
+            const padded = codeStr.length < 3
+                ? ("000" + codeStr).slice(-3)
+                : codeStr;
             let head = "HTTP/1.1 " + padded + " " +
-                (http_status_msg[statuscode] || "") + "\r\n";
+                (httpStatusMsg[statuscode] || "") + "\r\n";
 
             if (header) {
                 const keys = Object.keys(header);
@@ -306,33 +306,33 @@
             }
 
             if (typeof body === "string") {
-                const body_bytes = text_encoder.encode(body);
-                head += "content-length: " + body_bytes.byteLength +
+                const bodyBytes = textEncoder.encode(body);
+                head += "content-length: " + bodyBytes.byteLength +
                     "\r\n\r\n";
-                write_fn(head);
-                write_fn(body);
+                writeFn(head);
+                writeFn(body);
             } else if (typeof body === "function") {
                 head += "transfer-encoding: chunked\r\n";
-                write_fn(head);
+                writeFn(head);
                 while (true) {
                     const chunk = body();
                     if (chunk !== null && chunk !== undefined) {
                         if (chunk !== "") {
-                            const chunk_bytes = text_encoder.encode(chunk);
-                            write_fn("\r\n" +
-                                chunk_bytes.byteLength.toString(16) +
+                            const chunkBytes = textEncoder.encode(chunk);
+                            writeFn("\r\n" +
+                                chunkBytes.byteLength.toString(16) +
                                 "\r\n");
-                            write_fn(chunk);
+                            writeFn(chunk);
                         }
                     } else {
-                        write_fn("\r\n0\r\n\r\n");
+                        writeFn("\r\n0\r\n\r\n");
                         break;
                     }
                 }
             } else {
                 // null/undefined: headers only, end with blank line
                 head += "\r\n";
-                write_fn(head);
+                writeFn(head);
             }
             return true;
         } catch (e) {
@@ -346,12 +346,12 @@
 
     // --------------------------------------------- connection pool
 
-    const conn_pool = new Map();   // key -> [{ fd, reader, expire_time }]
+    const connPool = new Map();   // key -> [{ fd, reader, expire_time }]
     const MAX_PER_HOST = 8;
     const DEFAULT_KEEPALIVE_SEC = 60;
-    let cleanup_timer_started = false;
+    let cleanupTimerStarted = false;
 
-    function pool_key_str(host, port, protocol) {
+    function poolKeyStr(host, port, protocol) {
         return host + ":" + port + ":" + protocol;
     }
 
@@ -359,18 +359,18 @@
      * Take a reusable connection from the pool. Validates expiry and
      * closed state. Returns { fd, reader } or null.
      */
-    function pool_get(key) {
-        const conns = conn_pool.get(key);
+    function poolGet(key) {
+        const conns = connPool.get(key);
         if (!conns) return null;
         while (conns.length > 0) {
             const conn = conns.pop();
-            if (!conn.reader.closed && skynet.now() < conn.expire_time) {
+            if (!conn.reader.closed && skynet.now() < conn.expireTime) {
                 return conn;
             }
             // expired or closed — discard silently
             try { socket.close(conn.fd); } catch (_) { /* ignore */ }
         }
-        conn_pool.delete(key);
+        connPool.delete(key);
         return null;
     }
 
@@ -378,30 +378,30 @@
      * Return a connection to the pool (or close it if not reusable).
      * Checks Connection: close header and parses Keep-Alive timeout.
      */
-    function pool_put(key, fd, reader, resp_header) {
+    function poolPut(key, fd, reader, respHeader) {
         // "Connection: close" means the server will close the connection
-        const conn_hdr = resp_header ? resp_header["connection"] : null;
-        if (typeof conn_hdr === "string" &&
-            conn_hdr.toLowerCase() === "close") {
+        const connHdr = respHeader ? respHeader["connection"] : null;
+        if (typeof connHdr === "string" &&
+            connHdr.toLowerCase() === "close") {
             try { socket.close(fd); } catch (_) { /* ignore */ }
             return;
         }
 
         // parse Keep-Alive: timeout=N
-        let timeout_sec = DEFAULT_KEEPALIVE_SEC;
-        const ka_hdr = resp_header ? resp_header["keep-alive"] : null;
-        if (typeof ka_hdr === "string") {
-            const m = ka_hdr.match(/timeout\s*=\s*(\d+)/i);
-            if (m) timeout_sec = parseInt(m[1], 10);
+        let timeoutSec = DEFAULT_KEEPALIVE_SEC;
+        const kaHdr = respHeader ? respHeader["keep-alive"] : null;
+        if (typeof kaHdr === "string") {
+            const m = kaHdr.match(/timeout\s*=\s*(\d+)/i);
+            if (m) timeoutSec = parseInt(m[1], 10);
         }
 
         // skynet.now() is centiseconds (10ms ticks)
-        const expire_time = skynet.now() + timeout_sec * 100;
+        const expireTime = skynet.now() + timeoutSec * 100;
 
-        let conns = conn_pool.get(key);
+        let conns = connPool.get(key);
         if (!conns) {
             conns = [];
-            conn_pool.set(key, conns);
+            connPool.set(key, conns);
         }
 
         // cap per-host connections: evict oldest if full
@@ -410,43 +410,43 @@
             try { socket.close(oldest.fd); } catch (_) { /* ignore */ }
         }
 
-        conns.push({ fd, reader, expire_time });
-        ensure_cleanup_timer();
+        conns.push({ fd, reader, expireTime });
+        ensureCleanupTimer();
     }
 
-    function ensure_cleanup_timer() {
-        if (cleanup_timer_started) return;
-        cleanup_timer_started = true;
-        schedule_cleanup();
+    function ensureCleanupTimer() {
+        if (cleanupTimerStarted) return;
+        cleanupTimerStarted = true;
+        scheduleCleanup();
     }
 
-    function schedule_cleanup() {
+    function scheduleCleanup() {
         // 30 seconds = 3000 centiseconds
         skynet.timeout(3000, function () {
             const now = skynet.now();
-            for (const [key, conns] of conn_pool) {
+            for (const [key, conns] of connPool) {
                 for (let i = conns.length - 1; i >= 0; i--) {
                     const c = conns[i];
-                    if (c.reader.closed || now >= c.expire_time) {
+                    if (c.reader.closed || now >= c.expireTime) {
                         try { socket.close(c.fd); } catch (_) { /* ignore */ }
                         conns.splice(i, 1);
                     }
                 }
-                if (conns.length === 0) conn_pool.delete(key);
+                if (conns.length === 0) connPool.delete(key);
             }
-            if (conn_pool.size > 0) {
-                schedule_cleanup();
+            if (connPool.size > 0) {
+                scheduleCleanup();
             } else {
-                cleanup_timer_started = false;
+                cleanupTimerStarted = false;
             }
         });
     }
 
     // --------------------------------------------- URL utilities
 
-    const default_port = { http: 80, https: 443 };
+    const defaultPort = { http: 80, https: 443 };
 
-    function parse_host_part(host) {
+    function parseHostPart(host) {
         const colon1 = host.indexOf(":");
         if (colon1 < 0) {
             return { hostname: host, port: null };
@@ -477,39 +477,39 @@
      * Parse a full URL like "http://host:port/path" into its components.
      * Returns { protocol, host, port, path, host_header }.
      */
-    function client_parse_url(url) {
+    function clientParseUrl(url) {
         let protocol, rest;
-        const proto_match = url.match(/^([a-zA-Z]+):\/\/(.*)/);
-        if (proto_match) {
-            protocol = proto_match[1].toLowerCase();
-            rest = proto_match[2];
+        const protoMatch = url.match(/^([a-zA-Z]+):\/\/(.*)/);
+        if (protoMatch) {
+            protocol = protoMatch[1].toLowerCase();
+            rest = protoMatch[2];
         } else {
             protocol = "http";
             rest = url;
         }
         // separate path from host
         const slash = rest.indexOf("/");
-        let host_part, path;
+        let hostPart, path;
         if (slash >= 0) {
-            host_part = rest.substring(0, slash);
+            hostPart = rest.substring(0, slash);
             path = rest.substring(slash);
         } else {
-            host_part = rest;
+            hostPart = rest;
             path = "/";
         }
-        const parsed = parse_host_part(host_part);
-        const port = parsed.port || default_port[protocol];
+        const parsed = parseHostPart(hostPart);
+        const port = parsed.port || defaultPort[protocol];
         if (!port) throw new Error("Invalid protocol: " + protocol);
         return {
             protocol,
             host: parsed.hostname,
             port,
             path,
-            host_header: host_part,
+            hostHeader: hostPart,
         };
     }
 
-    function httpc_escape(s) {
+    function httpcEscape(s) {
         let out = "";
         for (let i = 0; i < s.length; i++) {
             const c = s.charCodeAt(i);
@@ -523,7 +523,7 @@
                 out += s[i];
             } else {
                 // encode each UTF-8 byte as %XX
-                const bytes = text_encoder.encode(s[i]);
+                const bytes = textEncoder.encode(s[i]);
                 for (let j = 0; j < bytes.length; j++) {
                     out += "%" +
                         bytes[j].toString(16).toUpperCase().padStart(2, "0");
@@ -533,7 +533,7 @@
         return out;
     }
 
-    function url_decode(str) {
+    function urlDecode(str) {
         str = str.replace(/\+/g, " ");
         const bytes = [];
         for (let i = 0; i < str.length; i++) {
@@ -547,26 +547,26 @@
         return new TextDecoder().decode(new Uint8Array(bytes));
     }
 
-    function httpc_url_parse(url) {
+    function httpcUrlParse(url) {
         const qmark = url.indexOf("?");
         if (qmark >= 0) {
             return {
-                path: url_decode(url.substring(0, qmark)),
+                path: urlDecode(url.substring(0, qmark)),
                 query: url.substring(qmark + 1),
             };
         }
-        return { path: url_decode(url), query: "" };
+        return { path: urlDecode(url), query: "" };
     }
 
-    function httpc_url_parse_query(q) {
+    function httpcUrlParseQuery(q) {
         const r = {};
         if (!q) return r;
         const pairs = q.split("&");
         for (let i = 0; i < pairs.length; i++) {
             const eq = pairs[i].indexOf("=");
             if (eq < 0) continue;
-            const dk = url_decode(pairs[i].substring(0, eq));
-            const dv = url_decode(pairs[i].substring(eq + 1));
+            const dk = urlDecode(pairs[i].substring(0, eq));
+            const dv = urlDecode(pairs[i].substring(eq + 1));
             if (r[dk] !== undefined) {
                 if (Array.isArray(r[dk])) {
                     r[dk].push(dv);
@@ -586,92 +586,92 @@
      * Build the HTTP request header string and optional body. Matches the
      * original internal.request() layout.
      */
-    function build_request(method, host_header, url, header, content) {
-        let header_content = "";
+    function buildRequest(method, hostHeader, url, header, content) {
+        let headerContent = "";
         if (header) {
-            let has_host = false;
+            let hasHost = false;
             const keys = Object.keys(header);
             for (let i = 0; i < keys.length; i++) {
                 const k = keys[i];
-                if (k.toLowerCase() === "host") has_host = true;
+                if (k.toLowerCase() === "host") hasHost = true;
                 const v = header[k];
                 if (Array.isArray(v)) {
                     for (let j = 0; j < v.length; j++) {
-                        header_content += k + ":" + v[j] + "\r\n";
+                        headerContent += k + ":" + v[j] + "\r\n";
                     }
                 } else {
-                    header_content += k + ":" + v + "\r\n";
+                    headerContent += k + ":" + v + "\r\n";
                 }
             }
-            if (!has_host) {
-                header_content = "Host:" + host_header + "\r\n" +
-                    header_content;
+            if (!hasHost) {
+                headerContent = "Host:" + hostHeader + "\r\n" +
+                    headerContent;
             }
         } else {
-            header_content = "Host:" + host_header + "\r\n";
+            headerContent = "Host:" + hostHeader + "\r\n";
         }
 
-        let request_head;
+        let requestHead;
         if (content !== undefined && content !== null && content !== "") {
             if (header &&
                 header["transfer-encoding"] === "chunked") {
-                request_head = method + " " + url + " HTTP/1.1\r\n" +
-                    header_content + "\r\n";
+                requestHead = method + " " + url + " HTTP/1.1\r\n" +
+                    headerContent + "\r\n";
             } else {
-                const content_bytes = (typeof content === "string")
-                    ? text_encoder.encode(content)
+                const contentBytes = (typeof content === "string")
+                    ? textEncoder.encode(content)
                     : content;
-                request_head = method + " " + url + " HTTP/1.1\r\n" +
-                    header_content +
-                    "Content-length:" + content_bytes.byteLength +
+                requestHead = method + " " + url + " HTTP/1.1\r\n" +
+                    headerContent +
+                    "Content-length:" + contentBytes.byteLength +
                     "\r\n\r\n";
             }
         } else {
-            request_head = method + " " + url + " HTTP/1.1\r\n" +
-                header_content + "Content-length:0\r\n\r\n";
+            requestHead = method + " " + url + " HTTP/1.1\r\n" +
+                headerContent + "Content-length:0\r\n\r\n";
         }
-        return request_head;
+        return requestHead;
     }
 
     /**
      * Perform an HTTP request over an existing reader. Returns
      * { status, body, header } or throws on error.
      */
-    async function do_request_on(reader, method, host_header, url,
-        recv_header_out, header, content) {
+    async function doRequestOn(reader, method, hostHeader, url,
+        recvHeaderOut, header, content) {
         // send request
-        const request_head = build_request(
-            method, host_header, url, header, content
+        const requestHead = buildRequest(
+            method, hostHeader, url, header, content
         );
-        reader.write(request_head);
+        reader.write(requestHead);
         if (content !== undefined && content !== null && content !== "") {
             reader.write(content);
         }
 
         // receive response headers
-        const hdr = await recv_header(reader);
+        const hdr = await recvHeader(reader);
         if (!hdr.ok || hdr.lines.length === 0) {
             throw new Error("Recv header failed");
         }
 
         // parse status line "HTTP/x.x CODE INFO"
-        const status_line = hdr.lines[0];
-        const sm = status_line.match(/HTTP\/[\d.]+\s+(\d+)\s*(.*)/);
+        const statusLine = hdr.lines[0];
+        const sm = statusLine.match(/HTTP\/[\d.]+\s+(\d+)\s*(.*)/);
         if (!sm) throw new Error("Invalid HTTP status line");
-        const status_code = parseInt(sm[1], 10);
+        const statusCode = parseInt(sm[1], 10);
 
-        const resp_header = parse_header(
-            hdr.lines, 1, recv_header_out || {}
+        const respHeader = parseHeader(
+            hdr.lines, 1, recvHeaderOut || {}
         );
-        if (!resp_header) throw new Error("Invalid HTTP response header");
+        if (!respHeader) throw new Error("Invalid HTTP response header");
 
-        return { status: status_code, header: resp_header };
+        return { status: statusCode, header: respHeader };
     }
 
     /**
      * Open a new connection (with optional TLS upgrade).
      */
-    async function open_connection(parsed, timeout, ca_file) {
+    async function openConnection(parsed, timeout, caFile) {
         const fd = await sockethelper.connect(
             parsed.host, parsed.port, timeout
         );
@@ -682,8 +682,8 @@
                 socket.close(fd);
                 throw new Error("HTTPS requires OpenSSL build");
             }
-            await sockethelper.tls_upgrade(
-                reader, parsed.host, false, null, null, ca_file
+            await sockethelper.tlsUpgrade(
+                reader, parsed.host, false, null, null, caFile
             );
         }
 
@@ -692,7 +692,7 @@
 
     // --------------------------------------------- httpc public API
 
-    const httpc_obj = {
+    const httpcObj = {
         timeout: null,   // global timeout in skynet ticks (centiseconds)
     };
 
@@ -700,35 +700,35 @@
      * Full HTTP request. Returns Promise<{ status, body, header }>.
      * Supports connection pooling with retry-on-stale.
      */
-    httpc_obj.request = async function (method, hostname, url,
-        recv_header_out, header, content, options) {
-        const parsed = client_parse_url(hostname);
-        const key = pool_key_str(parsed.host, parsed.port, parsed.protocol);
-        const timeout = httpc_obj.timeout || undefined;
-        const ca_file = (options && options.ca_file) || undefined;
+    httpcObj.request = async function (method, hostname, url,
+        recvHeaderOut, header, content, options) {
+        const parsed = clientParseUrl(hostname);
+        const key = poolKeyStr(parsed.host, parsed.port, parsed.protocol);
+        const timeout = httpcObj.timeout || undefined;
+        const caFile = (options && options.caFile) || undefined;
 
-        let fd, reader, from_pool = false;
-        const pooled = pool_get(key);
+        let fd, reader, fromPool = false;
+        const pooled = poolGet(key);
         if (pooled) {
             fd = pooled.fd;
             reader = pooled.reader;
-            from_pool = true;
+            fromPool = true;
         }
 
         // retry-on-stale: if pooled connection fails on first write,
         // open a fresh one and retry (max 1 retry)
         for (let attempt = 0; attempt < 2; attempt++) {
-            if (!from_pool || attempt > 0) {
-                const conn = await open_connection(parsed, timeout, ca_file);
+            if (!fromPool || attempt > 0) {
+                const conn = await openConnection(parsed, timeout, caFile);
                 fd = conn.fd;
                 reader = conn.reader;
-                from_pool = false;
+                fromPool = false;
             }
 
             try {
-                const result = await do_request_on(
-                    reader, method, parsed.host_header, url,
-                    recv_header_out, header, content
+                const result = await doRequestOn(
+                    reader, method, parsed.hostHeader, url,
+                    recvHeaderOut, header, content
                 );
 
                 // read body
@@ -738,27 +738,27 @@
                     body = "";
                 } else if (mode && mode !== "identity" &&
                     mode === "chunked") {
-                    const chunked = await recv_chunked_body(
+                    const chunked = await recvChunkedBody(
                         reader, null, result.header
                     );
                     if (!chunked) throw new Error("Invalid response body");
                     body = chunked.body;
                 } else {
-                    body = await recv_body(
+                    body = await recvBody(
                         reader, result.status, result.header
                     );
                 }
 
                 // keep-alive decision
-                const has_content_length =
+                const hasContentLength =
                     result.header["content-length"] !== undefined;
-                const is_chunked = mode === "chunked";
-                const can_pool = has_content_length || is_chunked ||
+                const isChunked = mode === "chunked";
+                const canPool = hasContentLength || isChunked ||
                     result.status === 204 || result.status === 304 ||
                     result.status < 200 || method === "HEAD";
 
-                if (can_pool) {
-                    pool_put(key, fd, reader, result.header);
+                if (canPool) {
+                    poolPut(key, fd, reader, result.header);
                 } else {
                     try { socket.close(fd); } catch (_) { /* ignore */ }
                 }
@@ -770,9 +770,9 @@
                 };
             } catch (e) {
                 // stale pooled connection: retry once with a fresh one
-                if (from_pool && attempt === 0) {
+                if (fromPool && attempt === 0) {
                     try { socket.close(fd); } catch (_) { /* ignore */ }
-                    from_pool = false;
+                    fromPool = false;
                     continue;
                 }
                 // real failure: close and rethrow
@@ -785,9 +785,9 @@
     /**
      * HTTP GET shorthand.
      */
-    httpc_obj.get = async function (hostname, url, recv_header_out, header, options) {
-        const r = await httpc_obj.request(
-            "GET", hostname, url, recv_header_out, header, undefined, options
+    httpcObj.get = async function (hostname, url, recvHeaderOut, header, options) {
+        const r = await httpcObj.request(
+            "GET", hostname, url, recvHeaderOut, header, undefined, options
         );
         return { status: r.status, body: r.body };
     };
@@ -795,7 +795,7 @@
     /**
      * HTTP POST with form-encoded body.
      */
-    httpc_obj.post = async function (hostname, url, form, recv_header_out, options) {
+    httpcObj.post = async function (hostname, url, form, recvHeaderOut, options) {
         const hdr = {
             "content-type": "application/x-www-form-urlencoded",
         };
@@ -803,12 +803,12 @@
         const keys = Object.keys(form);
         for (let i = 0; i < keys.length; i++) {
             parts.push(
-                httpc_escape(keys[i]) + "=" + httpc_escape(String(form[keys[i]]))
+                httpcEscape(keys[i]) + "=" + httpcEscape(String(form[keys[i]]))
             );
         }
         const body = parts.join("&");
-        const r = await httpc_obj.request(
-            "POST", hostname, url, recv_header_out, hdr, body, options
+        const r = await httpcObj.request(
+            "POST", hostname, url, recvHeaderOut, hdr, body, options
         );
         return { status: r.status, body: r.body };
     };
@@ -816,31 +816,31 @@
     /**
      * HTTP HEAD — returns only the status code.
      */
-    httpc_obj.head = async function (hostname, url, recv_header_out,
+    httpcObj.head = async function (hostname, url, recvHeaderOut,
         header, options) {
-        const parsed = client_parse_url(hostname);
-        const key = pool_key_str(parsed.host, parsed.port, parsed.protocol);
-        const timeout = httpc_obj.timeout || undefined;
-        const ca_file = (options && options.ca_file) || undefined;
+        const parsed = clientParseUrl(hostname);
+        const key = poolKeyStr(parsed.host, parsed.port, parsed.protocol);
+        const timeout = httpcObj.timeout || undefined;
+        const caFile = (options && options.caFile) || undefined;
 
         for (let attempt = 0; attempt < 2; attempt++) {
             let fd, reader;
-            const pooled = (attempt === 0) ? pool_get(key) : null;
+            const pooled = (attempt === 0) ? poolGet(key) : null;
             if (pooled) {
                 fd = pooled.fd;
                 reader = pooled.reader;
             } else {
-                const conn = await open_connection(parsed, timeout, ca_file);
+                const conn = await openConnection(parsed, timeout, caFile);
                 fd = conn.fd;
                 reader = conn.reader;
             }
 
             try {
-                const result = await do_request_on(
-                    reader, "HEAD", parsed.host_header, url,
-                    recv_header_out, header
+                const result = await doRequestOn(
+                    reader, "HEAD", parsed.hostHeader, url,
+                    recvHeaderOut, header
                 );
-                pool_put(key, fd, reader, result.header);
+                poolPut(key, fd, reader, result.header);
                 return result.status;
             } catch (e) {
                 try { socket.close(fd); } catch (_) { /* ignore */ }
@@ -853,44 +853,44 @@
     /**
      * Streaming HTTP request. Returns a stream object with read() method.
      */
-    httpc_obj.request_stream = async function (method, hostname, url,
-        recv_header_out, header, content) {
-        const parsed = client_parse_url(hostname);
-        const timeout = httpc_obj.timeout || undefined;
+    httpcObj.requestStream = async function (method, hostname, url,
+        recvHeaderOut, header, content) {
+        const parsed = clientParseUrl(hostname);
+        const timeout = httpcObj.timeout || undefined;
 
-        const conn = await open_connection(parsed, timeout);
+        const conn = await openConnection(parsed, timeout);
         const fd = conn.fd;
         const reader = conn.reader;
 
         try {
-            const result = await do_request_on(
-                reader, method, parsed.host_header, url,
-                recv_header_out, header, content
+            const result = await doRequestOn(
+                reader, method, parsed.hostHeader, url,
+                recvHeaderOut, header, content
             );
 
             const mode = result.header["transfer-encoding"];
-            const is_chunked = mode === "chunked";
-            const length_str = result.header["content-length"];
-            let remaining = length_str !== undefined
-                ? parseInt(length_str, 10)
+            const isChunked = mode === "chunked";
+            const lengthStr = result.header["content-length"];
+            let remaining = lengthStr !== undefined
+                ? parseInt(lengthStr, 10)
                 : null;
             const status = result.status;
 
             // build stream object
-            const key = pool_key_str(
+            const key = poolKeyStr(
                 parsed.host, parsed.port, parsed.protocol
             );
 
-            function finish_stream() {
+            function finishStream() {
                 stream._closed = true;
                 stream.connected = false;
                 // return to pool if connection looks reusable
-                const conn_hdr = result.header
+                const connHdr = result.header
                     ? result.header["connection"] : null;
-                const is_close = typeof conn_hdr === "string" &&
-                    conn_hdr.toLowerCase() === "close";
-                if (!is_close && !reader.closed) {
-                    pool_put(key, fd, reader, result.header);
+                const isClose = typeof connHdr === "string" &&
+                    connHdr.toLowerCase() === "close";
+                if (!isClose && !reader.closed) {
+                    poolPut(key, fd, reader, result.header);
                 } else {
                     try { socket.close(fd); } catch (_) { /* ignore */ }
                 }
@@ -905,39 +905,39 @@
                 /** Read next chunk. Returns string or null when done. */
                 read: async function () {
                     if (stream._closed) return null;
-                    if (is_chunked) {
-                        const size_line = await reader.readline();
-                        const semi = size_line.indexOf(";");
-                        const sz_str = semi >= 0
-                            ? size_line.substring(0, semi)
-                            : size_line;
-                        const sz = parseInt(sz_str, 16);
+                    if (isChunked) {
+                        const sizeLine = await reader.readline();
+                        const semi = sizeLine.indexOf(";");
+                        const szStr = semi >= 0
+                            ? sizeLine.substring(0, semi)
+                            : sizeLine;
+                        const sz = parseInt(szStr, 16);
                         if (isNaN(sz) || sz === 0) {
                             // last chunk: parse trailers
-                            const trailer = await recv_header(reader);
+                            const trailer = await recvHeader(reader);
                             if (trailer.ok && trailer.lines.length > 0) {
-                                parse_header(
+                                parseHeader(
                                     trailer.lines, 0, stream.header
                                 );
                             }
-                            finish_stream();
+                            finishStream();
                             return null;
                         }
                         const buf = await reader.read(sz);
                         await reader.read(2);   // trailing CRLF
-                        return ab_to_str(buf);
+                        return abToStr(buf);
                     } else if (remaining !== null) {
                         if (remaining <= 0) {
-                            finish_stream();
+                            finishStream();
                             return null;
                         }
-                        const to_read = Math.min(remaining, 8192);
-                        const buf = await reader.read(to_read);
-                        remaining -= to_read;
+                        const toRead = Math.min(remaining, 8192);
+                        const buf = await reader.read(toRead);
+                        remaining -= toRead;
                         if (remaining <= 0) {
-                            finish_stream();
+                            finishStream();
                         }
-                        return ab_to_str(buf);
+                        return abToStr(buf);
                     } else {
                         // read-all mode: one shot
                         stream._closed = true;
@@ -963,11 +963,11 @@
         }
     };
 
-    httpc_obj.escape = httpc_escape;
-    httpc_obj.url_parse = httpc_url_parse;
-    httpc_obj.url_parse_query = httpc_url_parse_query;
-    httpc_obj.parse_url = function (url) {
-        const p = client_parse_url(url);
+    httpcObj.escape = httpcEscape;
+    httpcObj.urlParse = httpcUrlParse;
+    httpcObj.urlParseQuery = httpcUrlParseQuery;
+    httpcObj.parseUrl = function (url) {
+        const p = clientParseUrl(url);
         return {
             protocol: p.protocol,
             host: p.host,
@@ -976,28 +976,28 @@
         };
     };
 
-    httpc_obj.close_all_keepalive = function () {
-        for (const [_key, conns] of conn_pool) {
+    httpcObj.closeAllKeepalive = function () {
+        for (const [_key, conns] of connPool) {
             for (let i = 0; i < conns.length; i++) {
                 try { socket.close(conns[i].fd); } catch (_) { /* ignore */ }
             }
         }
-        conn_pool.clear();
+        connPool.clear();
     };
 
     // ---------------------------------------- export to globalThis
 
-    globalThis.httpd = httpd_obj;
-    globalThis.httpc = httpc_obj;
+    globalThis.httpd = httpdObj;
+    globalThis.httpc = httpcObj;
 
     // Internal parsing functions exported for websocket.js to reuse.
     // websocket.js needs recv_header and parse_header to handle the HTTP
     // upgrade handshake. Access via globalThis.http_internal.
-    globalThis.http_internal = {
-        recv_header,
-        parse_header,
-        recv_chunked_body,
-        recv_body,
-        http_status_msg,
+    globalThis.httpInternal = {
+        recvHeader,
+        parseHeader,
+        recvChunkedBody,
+        recvBody,
+        httpStatusMsg,
     };
 })();

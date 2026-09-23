@@ -1,0 +1,7 @@
+{
+  "thread": 4,
+  "cpath": "./cservice/?.so",
+  "bootstrap": "snjs examples/ts-echo/ts-echo.js",
+  "logservice": "logger",
+  "profile": true
+}

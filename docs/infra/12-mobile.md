@@ -1,7 +1,7 @@
 # 12 — 移动端可嵌入 ABI（Android AAR / iOS XCFramework）
 
 依赖：全部 P0 库（尤其 08 media 内嵌）。能力键：`features()` 在移动端标注
-`subprocess.available=false`，`media/tag/sqlite/http_stream=true`。
+`subprocess.available=false`，`media/tag/sqlite/httpStream=true`。
 涉及：新增 `platform/mobile/`（可嵌入实例入口 + JNI/C ABI）、构建目标（见 13）。
 
 ## 12.1 可嵌入实例（核心改造）
@@ -15,8 +15,8 @@
 统一 C ABI（供 JNI / Swift 包装调用）：
 
 ```c
-// platform/mobile/skyjs_mobile.h
-int  skyjs_start(const char *config_json);   // 返回实际端口，<0 为错误码
+// platform/mobile/skyjsMobile.h
+int  skyjs_start(const char *configJson);   // 返回实际端口，<0 为错误码
 void skyjs_stop(void);
 int  skyjs_is_running(void);
 int  skyjs_get_port(void);
@@ -26,11 +26,11 @@ void skyjs_set_error_callback(void (*cb)(const char *code, const char *msg));
 ```
 
 - 语义对齐 Songloft 现有 `mobile.Start/Stop/IsRunning/GetPort`，便于客户端平滑替换。
-- `config_json`：扁平 JSON（含 data_dir、music_dir、port、js 库路径覆盖等）。
+- `configJson`：扁平 JSON（含 dataDir、musicDir、port、js 库路径覆盖等）。
 
 ## 12.2 Android
 
-- `platform/mobile/android/`：JNI wrapper（`skyjs_jni.c`）暴露
+- `platform/mobile/android/`：JNI wrapper（`skyjsJni.c`）暴露
   `SkyjsNative.start/stop/isRunning/getPort`，日志/错误回调经 JNI 上抛。
 - ABI：`arm64-v8a`、`armeabi-v7a`、`x86_64`；`minSdk` 与 Songloft 现状对齐（androidapi 23）。
 - 产物：`songloft-skyjs.aar`（含各 ABI 静态库 + libav/TagLib/SQLite/OpenSSL 静态）。
@@ -47,10 +47,10 @@ void skyjs_set_error_callback(void (*cb)(const char *code, const char *msg));
 ## 12.4 平台能力差异
 
 - `subprocess`：移动端不编入，调用抛 `ERR_UNSUPPORTED_PLATFORM`；插件 manifest 声明
-  `command` 时由 `plugin_manager` 明确拒绝并给出稳定错误（见 06、09）。
+  `command` 时由 `pluginManager` 明确拒绝并给出稳定错误（见 06、09）。
 - `media`：始终走内嵌 `mediad`（libav 静态），转码/探测/标签/缩略图全部本机完成，
   不依赖任何外部可执行文件。
-- 其余库（db/http/fs/archive/crypt/config/log/metrics/plugin_host）跨平台一致。
+- 其余库（db/http/fs/archive/crypt/config/log/metrics/pluginHost）跨平台一致。
 
 ## 12.5 错误码
 

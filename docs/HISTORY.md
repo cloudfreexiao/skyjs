@@ -139,3 +139,51 @@
     （B 挂起等 C 时 D 再次调用 B）与双 session 场景（B 并发两个 `skynet.call`，
     X 故意先回第二个再经 timer 回第一个），断言各自收到带 token 的响应，验证
     session↔Promise 路由不会交叉错配。
+13. **命名规范 snake_case → camelCase 硬切换**（2026-09-23）：项目目标定为
+    兼容 Node 代码（LLRT 路线）后，JS 侧命名从 lower_snake_case 全面迁移到
+    lowerCamelCase（类 UpperCamelCase、常量 UPPER_SNAKE_CASE 不变）——约 2400 处
+    标识符经一次性词法 codemod 转换（字符串/正则/模板/注释内不动，冻结域因此
+    自动保全），C 侧仅同步 `JS_SetPropertyStr`/`JS_NewCFunction` 的属性名字符串
+    与结果对象键（C 函数/变量/符号保持原规范）。冻结域清单：env/config 键
+    （js_loader 等）、skynet 命令串、cluster 线协议串、io.js↔ioservice.js RPC
+    op 串（"read_file" 等仍为 snake，方法名照常 camel）、测试验收标记串、算法
+    域名词（iso7816_4）。顺带修复 d.ts 与 js-crypto.c 的 keypair 结果键不一致
+    （public/secret → publicKey/secretKey）。`tools/lint.js` 规则同步反转
+    （camel 正则 + iso7816_4 白名单 + 旧 snake 名退役黑名单）。基础设施文档
+    （docs/infra/00-15）签名同步机械 camel；新库按 Node 形状重写是后续独立批次。
+14. **自研 lint 退役，切换 ESLint**（2026-09-23）：删除 `tools/lint.js` 与 `make lint`
+    目标，换 `eslint.config.js`（flat config）+ `npm run lint`。规则迁移：语法/禁
+    var/禁 tab 走内置规则；命名走 `@typescript-eslint/naming-convention`
+    （camelCase/UPPER/Pascal + `__` 前缀豁免 + `iso7816_4` 白名单）；退役名黑名单
+    走 `id-match` 负向前瞻（仅标识符，字符串字面量不查）。双运行时 overrides：
+    QuickJS 侧（js/、test/service/、examples/）声明 snjs 注入 globals，tools/
+    侧声明 Node 环境。AST 级检查顺带修了自研版查不到的问题：cluster.js 两处
+    注释分隔 tab、websocket.js readHandshake 中无用赋值 `method`、
+    nested-config-main.js 冗余初始化 `frozenOk`、ts-echo.ts 类型名 Pascal 化。
+    工具链引入 devDependencies（eslint + ts-eslint 插件），CI 两处 `make lint`
+    改为 `npm ci && npm run lint`；运行时零 npm 依赖不变。迁移顺带发现 id-match
+    语义为"必须匹配"，黑名单需负向前瞻表达（首次配置正向写法导致全库误报）。
+15. **config JSON 键与 env 键全面 camel 化**（2026-09-23）：配置域原属冻结域，用户
+    决策推翻之——config 键跟随 JS 命名规范。改动面：全部 test/examples config JSON
+    （`js_memlimit`→`jsMemLimit`、`bootstrap_param`→`bootstrapParam`、
+    `test_*`→`test*`）；snjs.c 的 12 个 env 键字符串（`js_loader`→`jsLoader` 等
+    11 个 loader 键 + `jsMemlimit` 定名 `jsMemLimit`——"limit" 是一个词，不拆
+    成 `jsMemlimit`）；nested-config-main.js 的 9 个 `getenv` 字符串实参同步。
+    注意：skynet 框架键（thread/cpath/bootstrap/logservice/profile 等）原为单词，
+    无 snake 可改；`3rd/skynet` 内核消费的键不受影响（env store 透传）。
+    顺带清理 config-nested.json 的死键 `js_path`（无任何消费者）与无消费者的
+    `bootstrap_param`（snjs 参数走 bootstrap 命令行空格分段，不经此键）——后者
+    保留仅为文档示意。冻结域相应收缩：env/config 键不再整域冻结，仅剩协议串/
+    标记串/域名词。
+16. **文件名/目录名统一 kebab-case**（2026-09-23）：标识符 camel 化之后，文件名
+    层仍有 snake（96 处）/kebab（13 处）混用，用户决策统一为 kebab-case（机械
+    规则：每个 `_`→`-`）。git mv 100 个跟踪文件与 3 个 snake 目录
+    （examples/ts-echo、test/bench-lua、test/cluster-lua）；引用同步 437 处
+    （config bootstrap、服务脚本 newservice 字符串、tools require/场景表、
+    Makefile、shell、C include snjs-internal.h、docs、lua 配置内路径），其中
+    build/ 生成物字面量（config-mem-js-、seri-ref.bin 等）一并 kebab 化。
+    platform/ 三个 C 文件一并 kebab 化（lua-stub.c/mingw-compat.c/
+    builtin-dl.c；lauxlib.h/lua.h 保留原名——它们是遮蔽上游 include 路径的
+    编译契约）；snjs_internal.h 改为 snjs-internal.h。至此全库（除本文档
+    历史条目与 3rd/ submodule）无 snake 文件名。本文档为 append-only 档案，
+    旧条目中的旧文件名保留原样。

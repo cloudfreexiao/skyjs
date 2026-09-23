@@ -4,33 +4,53 @@
 
 ## 1. 标识符与文件命名
 
-- JS/C 注入标识符一律 `lower_snake_case`（对齐 skynet 生态，无连写豁免）。
+- JS 标识符一律 `lowerCamelCase`（类 `UpperCamelCase`、常量 `UPPER_SNAKE_CASE`）。
+  项目目标为兼容 Node 代码（LLRT 路线），命名对齐 JS 生态惯例；C 源码内部命名
+  （`js_*`/`snjs_*`）保持 C 规范不变。
+- **冻结域**（字符串字面量逐字保留）：env/config 键（`jsLoader`、`jsMemLimit`、
+  `__json_config`…）；线协议与命令串（skynet 命令、cluster 帧、tls "client"/"server"、
+  HTTP/WS header 名）；io.js↔ioservice.js RPC op 串（`"read_file"` 等）；测试验收
+  标记串。算子/架构域名词白名单：`iso7816_4`、`x86_64` 等保留原名。
 - 禁 `var`；库以 IIFE 组织，仅暴露约定的 `globalThis.<lib>` 与 `__snjs_*` C 契约。
 - 文件命名：
   - 客户端库：`js/<lib>.js`。
-  - owner service：`service/<cap>_service.js`。
+  - owner service：`service/<cap>-service.js`（如 `fs-service.js`）。
   - C 源：`service-src/js-<cap>.c`（C++ 适配用 `.cc`）。
   - 文档：`docs/infra/NN-topic.md`。
+
+### 1.1 外部兼容面豁免（唯一例外）
+
+`lowerCamelCase` 约束适用于**本项目自有**的库与注入名。以下属于**外部既定契约**，
+必须逐字沿用对方命名，不得改写：
+
+| 面 | 命名风格 | 原因 |
+|---|---|---|
+| 插件 bridge（`songloft.*`、`onHTTPRequest` 等，见 09） | camelCase | 现有插件源码直接调用，改名即破坏兼容 |
+| Android JNI / Java 侧（`isRunning`/`getPort`，见 12） | camelCase | Java 语言惯例与宿主客户端约定 |
+| Web 标准 API（`AbortSignal`、`TextDecoder`、`ArrayBuffer`…） | 标准原名 | 与 WHATWG/ECMA 对齐 |
+| HTTP header 名 | 协议原名 | 线协议 |
+
+移动端 C ABI 仍用 snake_case（`skyjs_start` 等），camelCase 只出现在 Java/Swift 包装层。
 
 ## 2. 三层结构与命名映射
 
 | 能力 | 客户端库 `globalThis.<lib>` (js/) | C 注入 `skynetcore.<ns>` | owner service (`.<cap>`) | C 源 |
 |---|---|---|---|---|
 | 核心运行时 | `skynet`(扩展) / `stream` | 复用现有 bridge | 无（进程内） | 扩展 `snjs.c` |
-| SQLite | `db` | `skynetcore.sqlite` | `.sqlite` (`sqlite_service.js`) | `js-sqlite.c` |
+| SQLite | `db` | `skynetcore.sqlite` | `.sqlite` (`sqlite-service.js`) | `js-sqlite.c` |
 | HTTP 应用 | `webapp` | 复用 `socket`/`tls` | 无（库内建） | 复用 |
 | HTTP 底层 | `httpd`/`httpc`(扩展) | 复用 | 无 | 复用 `http.js` |
-| 文件（异步/流） | `fs` | `skynetcore.fs`(扩展 io) | `.fs` (`fs_service.js`) | 扩展 `js-io.c` |
+| 文件（异步/流） | `fs` | `skynetcore.fs`(扩展 io) | `.fs` (`fs-service.js`) | 扩展 `js-io.c` |
 | 归档 | `archive` | `skynetcore.archive` | `.archive` (owner 可选) | `js-archive.c` |
-| 子进程 | `subprocess` | `skynetcore.subprocess` | `.subprocess` (`subprocess_service.js`) | `js-subprocess.c` |
+| 子进程 | `subprocess` | `skynetcore.subprocess` | `.subprocess` (`subprocess-service.js`) | `js-subprocess.c` |
 | 密码学 | `crypt`(扩展) | `skynetcore.crypt`(扩展) | 无（同步原语） | 扩展 `js-crypto.c` |
-| 媒体 | `media` | `skynetcore.media` | `.media` (`media_service.js`) | `js-media.c` |
+| 媒体 | `media` | `skynetcore.media` | `.media` (`media-service.js`) | `js-media.c` |
 | 标签 | `tag` | `skynetcore.tag` | 复用 `.media` 或 `.tag` | `js-tag.cc` |
-| 配置 | `config` | 复用 `command`(GETENV) | `.config` (`config_service.js`) | 复用 |
-| 日志 | `log` | 复用 `error` | 无（可选 `.log_sink`） | 复用 |
-| 指标 | `metrics` | 复用 | `.metrics` (`metrics_service.js`) | 复用 |
+| 配置 | `config` | 复用 `command`(GETENV) | `.config` (`config-service.js`) | 复用 |
+| 日志 | `log` | 复用 `error` | 无（可选 `.log-sink`） | 复用 |
+| 指标 | `metrics` | 复用 | `.metrics` (`metrics-service.js`) | 复用 |
 | 测试 | `testing` | 无 | 无 | 无 |
-| 插件宿主 | `plugin_host` | 受限白名单 | `.plugin_manager` | `snplugin` loader |
+| 插件宿主 | `pluginHost` | 受限白名单 | `.pluginManager` | `snplugin` loader |
 
 owner service 是否常驻/懒启由各库文档定义；无 owner 的库（如 `webapp`/`stream`/
 `crypt`/`testing`）在调用方服务内直接运行。
@@ -38,17 +58,17 @@ owner service 是否常驻/懒启由各库文档定义；无 owner 的库（如 
 ## 3. 现有面（保留，不改名）
 
 `skynetcore` 现有注入（见 `service-src/snjs.c` `register_bridge`）：
-`send / command / int_command / gen_id / now / error / mem / response /
-error_response / redirect / socket.* / netpack.* / pack / unpack / str /
+`send / command / intCommand / genId / now / error / mem / response /
+errorResponse / redirect / socket.* / netpack.* / pack / unpack / str /
 __load_runtime`，以及 `skynetcore.crypt`、`skynetcore.io`、`skynetcore.tls`(条件)。
 
 现有 `globalThis` 库：`skynet / socket / crypt / sockethelper / cluster /
-gateserver / httpd / httpc / http_internal / websocket / io / console`。
+gateserver / httpd / httpc / httpInternal / websocket / io / console`。
 
-现有库加载 env 键（`snjs.c` `optstring` 默认值）：`js_loader`(skynet.js) /
-`js_socket` / `js_crypt` / `js_sockethelper` / `js_cluster` / `js_gateserver` /
-`js_http` / `js_websocket` / `js_io`，加内部 `ioservice`。新库沿用同一 env 键机制，
-键名 `js_<lib>`（如 `js_db`、`js_stream`、`js_webapp`），默认 `./js/<lib>.js`。
+现有库加载 env 键（`snjs.c` `optstring` 默认值）：`jsLoader`(skynet.js) /
+`jsSocket` / `jsCrypt` / `jsSockethelper` / `jsCluster` / `jsGateserver` /
+`jsHttp` / `jsWebsocket` / `jsIo`，加内部 `ioservice`。新库沿用同一 env 键机制，
+键名 `js<Lib>`（如 `jsDb`、`jsStream`、`jsWebapp`），默认 `./js/<lib>.js`。
 
 新库的懒加载登记（`lazy_setup_js` 的 `F` 表：`g`=暴露的全局名，`d`=依赖路径）需
 同步扩展，保证按需加载与依赖顺序。
@@ -85,14 +105,14 @@ gateserver / httpd / httpc / http_internal / websocket / io / console`。
 {
   version: "0.2.0",
   sqlite:        { available: true,  version: "3.46.0" },
-  http_stream:   { available: true },
-  fs_async:      { available: true },
+  httpStream:   { available: true },
+  fsAsync:      { available: true },
   archive:       { available: true },
   subprocess:    { available: false, reason: "ERR_UNSUPPORTED_PLATFORM" },
   media:         { available: true,  backend: "libav", codecs: ["mp3","aac","flac"] },
   tag:           { available: true,  backend: "taglib" },
-  crypt_ext:     { available: true },
-  plugin_sandbox:{ available: true }
+  cryptExt:     { available: true },
+  pluginSandbox:{ available: true }
 }
 ```
 
@@ -103,9 +123,9 @@ gateserver / httpd / httpc / http_internal / websocket / io / console`。
 
 - 统一用 `AbortSignal`（QuickJS-ng 若无内置则由 `stream`/核心库提供最小 polyfill，
   语义与 WHATWG 对齐：`signal.aborted`、`signal.reason`、`addEventListener('abort')`）。
-- 约定：任何可能长耗时的 API 接受可选 `{ signal, timeout_ms }`：
+- 约定：任何可能长耗时的 API 接受可选 `{ signal, timeoutMs }`：
   - `signal` 触发 → `reject(ERR_CANCELLED)`，并向下游（DB/进程/媒体/流）传播取消。
-  - `timeout_ms` 到期 → `reject(ERR_TIMEOUT)`，同样触发下游中止。
+  - `timeoutMs` 到期 → `reject(ERR_TIMEOUT)`，同样触发下游中止。
 - owner service 侧：收到取消后必须尽快释放原生资源（statement、fd、子进程、libav ctx）。
 - late response（请求已取消但响应姗姗来迟）必须被 `skynet` 扩展层丢弃，不得错配
   （详见 02-core-runtime）。

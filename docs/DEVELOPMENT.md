@@ -6,38 +6,38 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 
 ## 验收测试
 
-自动化验收:`make test`(tools/run_tests.js 逐行断言,覆盖全部场景);
-互通双向断言一键化:`make interop`(tools/run_interop.js);改动后跑对应
+自动化验收:`make test`(tools/run-tests.js 逐行断言,覆盖全部场景);
+互通双向断言一键化:`make interop`(tools/run-interop.js);改动后跑对应
 场景,预期输出对照 `test/service/*.js` 中的标记。
 
 | 场景 | 配置 | 验证点 |
 |---|---|---|
-| 纯 C 内核 | `test/config_core.json` | logger + C echo bootstrap |
-| JS echo/打断/OOM | `test/config_echo.json`、`config_deadloop.json`、`config_oom.json` | JS↔C 互 call、SIGNAL 打断(同步死循环 + microtask 链)、memlimit |
-| TypeScript 示例 | `./skyjs examples/ts_echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→LuaTable 往返断言(TS_ECHO_OK) |
-| console 面 | `test/config_console.json`(套件 console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
-| 异步核心 | `test/config_async.json` | 链式 await、重入、双 session 响应隔离、并发挂起、PTYPE_ERROR |
-| socket 桥 | `test/config_socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
-| gate/redirect | `test/config_gate.json` | C netpack 分帧/重组、watchdog-agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
-| lua-seri | `test/seri_tool gen build/seri_ref.bin` + `test/config_seri.json` | 字节级 roundtrip |
-| cluster 双节点 | `test/config_cluster_a.json` + `config_cluster_b.json` | 跨节点 call（两个终端） |
-| cluster 重连语义 | `test/config_cluster_fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
+| 纯 C 内核 | `test/config-core.json` | logger + C echo bootstrap |
+| JS echo/打断/OOM | `test/config-echo.json`、`config-deadloop.json`、`config-oom.json` | JS↔C 互 call、SIGNAL 打断(同步死循环 + microtask 链)、memlimit |
+| TypeScript 示例 | `./skyjs examples/ts-echo/config.json`(手动,不入套件) | TS 服务经 esbuild 转译后源码加载;text/lua 协议 RTT 与 table→LuaTable 往返断言(TS_ECHO_OK) |
+| console 面 | `test/config-console.json`(套件 console) | 各级别映射日志；递归渲染；printf 格式化(%s/%d/%f/%j/%o/%%)；time/timeLog/timeEnd |
+| 异步核心 | `test/config-async.json` | 链式 await、重入、双 session 响应隔离、并发挂起、PTYPE_ERROR |
+| socket 桥 | `test/config-socket.json` | TCP echo + nc 互通；per-connection binary（ArrayBuffer） |
+| gate/redirect | `test/config-gate.json` | C netpack 分帧/重组、watchdog-agent 绑定、PTYPE_CLIENT redirect、二进制/粘包/拆包回显 |
+| lua-seri | `test/seri-tool gen build/seri-ref.bin` + `test/config-seri.json` | 字节级 roundtrip |
+| cluster 双节点 | `test/config-cluster-a.json` + `config-cluster-b.json` | 跨节点 call（两个终端） |
+| cluster 重连语义 | `test/config-cluster-fail.json`(套件 cluster_fail) | 对端宕机→call 立即失败；对端上线→按需重连成功 |
 | 对比压测 | `make bench`(三阶段:core/cluster/socket) | SkyJS vs 原版 skynet 全套性能基线，方法学与数据见 [bench.md](bench.md) |
-| 基准 | `test/config_bench.json` | 往返吞吐、JS 堆占用 |
+| 基准 | `test/config-bench.json` | 往返吞吐、JS 堆占用 |
 
 与原版 Lua 节点的互通验收方式见根 README「验收状态」表。
 
 ## 目录结构
 
 ```text
-platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub) / builtin_dl.c(STATIC=1 用)
+platform/       # 内核替代层：env.c / main.c / lauxlib.h(纯 stub) / builtin-dl.c(STATIC=1 用)
 service-src/    # snjs.c(QuickJS 服务加载器) / js-seri.c(序列化) / js-netpack.c(gate 帧缓冲) / skyclusterd.c(cluster)
 cservice/       # 编译产物 logger.so / snjs.so / skyclusterd.so（gitignore）
 js/             # JS 运行时库：skynet.js → socket.js → cluster.js → gateserver.js（按序加载）；
                 # skyjs.d.ts 为全局注入面的 TS 类型声明（与库同源维护）
 test/           # 验收配置(*.json) + service/ JS 服务脚本 + service-src/ C 测试服务
-examples/       # TypeScript 接入示例（ts_echo：构建脚本 + 运行配置）
-tools/          # 开发工具：lint.js（零依赖 node 脚本）
+examples/       # TypeScript 接入示例（ts-echo：构建脚本 + 运行配置）
+tools/          # 开发工具：run_tests/run_bench/run_interop/run_longrun（零依赖 node 脚本）
 docs/           # 项目文档（本目录）
 3rd/            # submodule，只读，永不修改
 build/          # 中间产物（gitignore）
@@ -45,12 +45,12 @@ build/          # 中间产物（gitignore）
 
 ## C/JS 边界（关键 API 面）
 
-`snjs.c` 向 JS 注入全局 `skynetcore` 对象：`send / redirect / command / int_command / gen_id / now /
-error / mem / response / error_response / pack / unpack / str / read_file / write_file`，
-以及 `skynetcore.socket`（`listen/connect/start/send/close/shutdown/nodelay/netpack_mode`）与
+`snjs.c` 向 JS 注入全局 `skynetcore` 对象：`send / redirect / command / intCommand / genId / now /
+error / mem / response / errorResponse / pack / unpack / str / readFile / writeFile`，
+以及 `skynetcore.socket`（`listen/connect/start/send/close/shutdown/nodelay/netpackMode`）与
 `skynetcore.netpack`（`pop/pack/clear`）。
 
-JS 侧加载顺序（env 键 `js_loader` → `js_socket` → `js_cluster` → `js_gateserver` → 用户脚本）：
+JS 侧加载顺序（env 键 `jsLoader` → `jsSocket` → `jsCluster` → `jsGateserver` → 用户脚本）：
 `js/skynet.js` 定义 `globalThis.skynet` 与内部路由；`socket.js`/`cluster.js`/`gateserver.js`
 通过 `__snjs_set_socket_handler` / `__snjs_set_cluster_handlers` 挂回调。
 四个运行时库在 env 值为默认路径时走**内嵌字节码**（`make` 构建期由 qjsc 生成
@@ -61,7 +61,7 @@ RESPONSE/ERROR 回包与 Promise 排空。
 
 修改边界时的约定：
 
-- 消息调度模型同构于 `lualib/skynet.lua`：session ↔ `pending_calls`，await = yield；
+- 消息调度模型同构于 `lualib/skynet.lua`：session ↔ `pendingCalls`，await = yield；
   每个 await 都挂在外部事件上，保证 dispatch 返回时 pending job 队列已排空。
   **不要引入纯 JS 定时器/微任务挂起导致 worker 线程无法归还的机制。**
 - 消息跨层类型契约（text=字符串 / lua 与响应=ArrayBuffer / pack-unpack 类型映射）
@@ -85,7 +85,7 @@ RESPONSE/ERROR 回包与 Promise 排空。
 ## 二进制消息协议约定
 
 JS 服务跨层收发消息的类型契约。实现锚点：snjs.c `worker_cb`（接收方向）、
-`js_send`/`js_response`（发送方向），js/skynet.js `skynet_call`/`__snjs_wrap`。
+`js_send`/`js_response`（发送方向），js/skynet.js `skynetCall`/`__snjs_wrap`。
 协议常量同 skynet：PTYPE_TEXT=0、PTYPE_RESPONSE=1、PTYPE_CLIENT=3、PTYPE_SOCKET=6、
 PTYPE_ERROR=7、PTYPE_LUA=10。修改 C/JS 边界时不得破坏本节语义。
 
@@ -99,7 +99,7 @@ PTYPE_ERROR=7、PTYPE_LUA=10。修改 C/JS 边界时不得破坏本节语义。
 | PTYPE_TEXT 及其余全部类型 | UTF-8 字符串 | `JS_NewStringLen` 解码 |
 | PTYPE_SOCKET | 预解析对象 `{type, id, ud, data}`，DATA 的 data 为 `ArrayBuffer` | socket.js 按连接选择 UTF-8 解码或原样交付；netpack 模式改为 `{np,event,...}` |
 
-PTYPE_RESPONSE/PTYPE_ERROR 由 skynet.js 运行时路由（pending_calls / 定时器 /
+PTYPE_RESPONSE/PTYPE_ERROR 由 skynet.js 运行时路由（pendingCalls / 定时器 /
 cluster 桥），不会进入用户注册的 dispatch。
 
 发送（JS → C）：`skynetcore.send` / `skynetcore.response` 的消息参数传
@@ -117,7 +117,7 @@ resolve。
 
 `skynet.pack(...)` 返回 ArrayBuffer；`skynet.unpack(buf)` 返回按 seri 流顺序排列
 的值数组（buf 亦接受字符串，按其 UTF-8 字节流解）。js-seri.c 与原版 lua-seri
-字节级兼容（验收：`test/seri_tool` 对拍 + `test/config_seri.json` roundtrip），
+字节级兼容（验收：`test/seri-tool` 对拍 + `test/config-seri.json` roundtrip），
 pack 产物可跨 JS/Lua 节点互通。
 
 JS → seri（pack）类型映射（多入口，回读一律为 LuaTable）：
@@ -170,14 +170,14 @@ DATA 到达时 C 层直接接管 `sm->buffer`，单包/分片按 fd 重组，多
 `snjs_release` 释放所有 queued/uncomplete 缓冲。gate 服务退出前无需 JS 手动析构，
 但业务主动重置队列时应调用 clear。
 
-`socket.start(..., {binary:true})` 使指定连接的 `on_data` 接收 ArrayBuffer；默认仍通过
+`socket.start(..., {binary:true})` 使指定连接的 `onData` 接收 ArrayBuffer；默认仍通过
 `skynetcore.str` 解码为字符串，保持既有 API。socket 写入接受 string、ArrayBuffer 与
 TypedArray view。
 
 `skynet.redirect(dest, source, typename, session, msg)` 可伪装 source，C 层为新分配缓冲
 加 `PTYPE_TAG_DONTCOPY` 后移交内核。gate 将完整包以 PTYPE_CLIENT 转给 agent，session
 携带 fd；CLIENT dispatch 禁止 `__snjs_wrap` 自动回包，agent 直接向 fd 写响应。验收场景
-`test/config_gate.json` 覆盖 watchdog→agent 绑定、二进制载荷、粘包与拆包。
+`test/config-gate.json` 覆盖 watchdog→agent 绑定、二进制载荷、粘包与拆包。
 
 ## 编码约定
 
@@ -185,22 +185,40 @@ C 代码风格与 `3rd/skynet/skynet-src` 一致：4 空格缩进、`snjs_`/`js_
 结构体 `struct xx` 声明风格、函数定义返回类型独立一行。新增 C 文件需同步加入
 `Makefile` 对应 SRC 列表（snjs 系需 `-fvisibility=hidden` 与 `-I3rd/quickjs`）。
 
-JS 命名规范（对齐 skynet 生态，非浏览器 JS 惯例）：
+JS 命名规范（camelCase，对齐 JS 生态惯例；项目目标为兼容 Node 代码，LLRT 路线）：
 
 - 标识符（变量/函数/参数/公开 API/属性键/回调参数名/C 注入属性名）一律
-  lower_snake_case，复合词下划线分隔，**无连写豁免**（如 `find_type`、
-  `internal_dispatch`、`set_nodes`、`mem_stat`、`raw_cmd`、`on_data`）。
-- 与原版 `skynet.lua` 同名的公开 API 逐字保留（`skynet.register_protocol`、
-  `skynet.newservice` 等）。
+  lowerCamelCase，复合词首字母大写（如 `findType`、`internalDispatch`、`setNodes`、
+  `memStat`、`rawCmd`、`onData`）。
+- 类/构造器 UpperCamelCase（`File`、`LuaTable`、`BufferedReader`）；内部单 `_` 前缀
+  照用（`_onData`）。
 - 常量 UPPER_SNAKE_CASE（`PTYPE_TEXT`）；禁止 `var`，一律 `const`/`let`；
   字符串双引号；缩进 4 空格。
+- **文件名/目录名一律 kebab-case**（`io-main.js`、`config-cluster-a.json`、
+  `rss-trim.sh`、`ts-echo.ts`、`bench-lua/`、`lua-stub.c`、`snjs-internal.h`）
+  ——文件名与标识符解耦：文件名 kebab、内容标识符 camel（同 npm 生态惯例）。
+  唯一例外：`platform/lauxlib.h`、`platform/lua.h` 保留原名——它们是遮蔽上游
+  `3rd/skynet` include 路径的编译契约（skynet_main.c/malloc_hook.c
+  `#include <lauxlib.h>`），改名即破坏零修改编译。
 
-C/JS 边界：注入到 JS 的属性名同样遵守 JS snake 规范（`int_command`、`gen_id`、
-`read_file`、`write_file`、`error_response`），由 snjs.c 的 `JS_SetPropertyStr` 注入，
+C/JS 边界：注入到 JS 的属性名同样遵守 JS camel 规范（`intCommand`、`genId`、
+`readFile`、`writeFile`、`errorResponse`），由 snjs.c 的 `JS_SetPropertyStr` 注入，
 改名必须 JS/C 同步；C 源码内部函数名（`js_*` 前缀，如 `js_intcommand`）是纯 C 侧
 命名，不受 JS 规范管辖。`__snjs_*` 双下划线前缀与 `globalThis.dispatch` 是 C↔JS
-调用契约（加载器依赖），JS 侧不得改名或删除。旧连写名（intcommand/genid/
-readfile/writefile）已列入 lint 黑名单，勿复用。
+调用契约（加载器依赖），JS 侧不得改名或删除。
+
+**冻结域**（字符串字面量逐字保留，勿因"看起来是 snake"而改）：
+
+- env/config 键：`jsLoader`、`jsSocket`、…、`jsMemLimit`、`__json_config`、
+  `thread/cpath/bootstrap` 等——配置域契约。
+- 线协议与命令串：skynet 命令（GETENV/SIGNAL/EXIT/REG/NAME/LAUNCH/QUERY/TIMEOUT）、
+  cluster 帧（`"node "`、`"req "` 等与 `.clusterd`）、tls `"client"`/`"server"`、
+  HTTP/WS header 名。
+- io.js↔ioservice.js RPC op 串（`"read_file"` 等 9 个）与测试验收标记串
+  （`"c_echo="`、`"js_mem="` 等）——字符串与方法名解耦，两侧字符串保持一致即可。
+- 算法/架构域名词白名单：`iso7816_4`（ISO 7816-4）、`x86_64` 等保留原名。
+- 旧 snake 名（int_command/gen_id/read_file/write_file 等）与旧连写名
+  （intcommand/genid/readfile/writefile）均已退役，勿复用；后者在 lint 黑名单。
 
 运行时库与服务脚本：
 
@@ -234,28 +252,30 @@ readfile/writefile）已列入 lint 黑名单，勿复用。
 - **构建开关**（正交，可组合，默认全关）：
   - `STATIC=1`：把 `logger`/`snjs`/`skyclusterd` 静态链进 `skyjs`，产出单文件。
     实现遵守「不改 `3rd/`、也不接管 `skynet_module.c`」——仅在链接层 wrap `dlopen`
-    （`platform/builtin_dl.c`）：命中内置模块名的路径返回 `dlopen(NULL)`（主程序自身），
+    （`platform/builtin-dl.c`）：命中内置模块名的路径返回 `dlopen(NULL)`（主程序自身），
     入口符号随 `-rdynamic`(Linux)/`-Wl,-export_dynamic`(macOS) 导出，原版 `dlsym` 原样命中；
     其余路径走真实 `dlopen`（**保留 fallback**，测试服务与第三方 `.so` 仍动态加载）。
     Linux 用 `-Wl,--wrap=dlopen`，macOS 用 dyld `__interpose`+`dlsym(RTLD_NEXT)` 取真实指针避免自递归。
-    扩展内置清单改 `builtin_dl.c` 的 `builtin[]`。MinGW 不支持。
+    扩展内置清单改 `builtin-dl.c` 的 `builtin[]`。MinGW 不支持。
   - `RELEASE=1`：去 `-g`、`-O2`→`-Os`、`-ffunction-sections -fdata-sections` + 链接期
     section GC(`--gc-sections`/`-dead_strip`) 与 strip；`skyjs` ~5.7MB→~1MB。
   - 注意 logger（`service_logger.c`）无 `MODAPI` 可见性标注，其对象编译**不能**带
     `-fvisibility=hidden`，否则 `logger_*` 进不了 `-rdynamic` 导出表（snjs/skyclusterd 有 MODAPI 不受影响）。
 - **TypeScript 接入**：运行时全局注入面的类型声明在 [js/skyjs.d.ts](../js/skyjs.d.ts)
   （与三个运行时库同源维护，**改注入面必须同步更新**）；TS 服务写好后用
-  `examples/ts_echo/build.sh` 同款 esbuild 参数转译（`--bundle --format=iife
+  `examples/ts-echo/build.sh` 同款 esbuild 参数转译（`--bundle --format=iife
   --platform=neutral --target=es2022`，esbuild 仅构建期工具，npx 按需拉取），
   产物交 snjs 以源码模式加载（用户脚本始终走源码 eval，无模块包装）。完整
-  流程见 `examples/ts_echo/`（tsc --noEmit 可选强检查）。
+  流程见 `examples/ts-echo/`（tsc --noEmit 可选强检查）。
 - 配置文件为**扁平 JSON**（`platform/main.c` 内置约百行解析器，不支持 `$VAR`/
   `include`）；新配置键直接写 env，skynet 相关键（thread/cpath/harbor/bootstrap/
   daemon/logger/logservice/profile）映射 `skynet_config`，JS 专属键（如
-  `js_memlimit`）由 snjs 读取。
-- 提交前跑 `make lint`（或 `npm run lint`）：`tools/lint.js`（零依赖 node 脚本，
-  检查范围含自身所在 tools/）静态检查语法/禁 var/snake_case 命名/缩进/旧连写名
-  黑名单。
+  `jsMemLimit`）由 snjs 读取。
+- 提交前跑 `npm run lint`（eslint，`eslint.config.js` flat config）：双运行时
+  overrides（QuickJS 侧注入 globals / tools 侧 Node 环境）+ `naming-convention`
+  （camelCase/UPPER/Pascal + `iso7816_4` 白名单）+ `id-match` 退役名黑名单 +
+  `no-var`/`no-tabs`。依赖装在 devDependencies（`npm install` 一次），CI 用 `npm ci`。
+  旧零依赖 `tools/lint.js` 已删除（2026-09 换 ESLint）。
 - 注释与文档用中文或英文均可，与所在文件现状保持一致；README.md 的架构表与验收
   矩阵、docs/HISTORY.md 的演进记录在行为变更后需同步更新。
 
@@ -273,10 +293,10 @@ cluster.snax，也未与 gateserver 复用监听。
   `skynetcore.error`。cluster 侧对端未启动时每次请求失败的
   `socket-server error: invalid socket` 是 skynet 内核的固有噪音（每次
   connect 拒绝一条），非故障。
-- 内存：per-service memstat（`skynetcore.mem()`），`js_memlimit` 配 OOM 限额，
-  OOM 表现为 JS 抛错可被捕获（见 `test/service/oom_worker.js`）。
-- 死循环：SIGNAL 命令打断机制，见 `test/service/deadloop_worker.js`、
-  `test/service/microtask_deadloop_worker.js` 与 snjs.c 头注释（注意：信号到达时
+- 内存：per-service memstat（`skynetcore.mem()`），`jsMemLimit` 配 OOM 限额，
+  OOM 表现为 JS 抛错可被捕获（见 `test/service/oom-worker.js`）。
+- 死循环：SIGNAL 命令打断机制，见 `test/service/deadloop-worker.js`、
+  `test/service/microtask-deadloop-worker.js` 与 snjs.c 头注释（注意：信号到达时
   若无 JS 在跑，陷阱会滞后到下一条消息；纯 microtask 链在 job 之间检查 trap，
   命中后退出该服务，不会留下可在后续消息中恢复的队列）。
 - **KILL/跨服务命令参数是 `:hex` 格式**：内核 `tohandle()` 只认 `:十六进制`
@@ -284,9 +304,9 @@ cluster.snax，也未与 gateserver 复用监听。
   极易淹没在噪音里导致操作静默失效）。正确写法
   `skynetcore.command("KILL", ":" + h.toString(16))`；若「内存随服务数线性增长」
   先 grep `Can't convert` 确认销毁是否真执行过，再查泄漏。
-- 服务参数 `snjs_param` 在用户脚本 eval 完成后才注入（snjs.c post-JS_Eval），
+- 服务参数 `snjsParam` 在用户脚本 eval 完成后才注入（snjs.c post-JS_Eval），
   `skynet.start` 回调内（同步启动阶段）读到 undefined；需在首个 await 之后再读，
-  或用 driver kick 模式（见 `test/service/bench_trim_main.js`、`longrun_main.js`）。
+  或用 driver kick 模式（见 `test/service/bench-trim-main.js`、`longrun-main.js`）。
 - 长跑稳定性与 memstat/RSS 对账：`make longrun`（`DURATION=N` 分钟，默认 30），
   harness 汇总 js_mem 与 RSS 的增长量（memstat 盲区）并落盘 `build/longrun/`。
 - 其余已知限制（socket.start 重复事件、TIMEOUT 单位等）见 [TODO.md](TODO.md)

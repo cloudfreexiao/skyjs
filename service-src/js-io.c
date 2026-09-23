@@ -20,7 +20,7 @@
 #endif
 
 #include "skynet.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 
 /* ================================================================
  * Opaque FILE* handle wrapped in a QuickJS class
@@ -176,8 +176,8 @@ static JSValue js_io_stat(JSContext *ctx, JSValueConst tv, int argc, JSValueCons
 	JSValue obj = JS_NewObject(ctx);
 	JS_SetPropertyStr(ctx, obj, "size", JS_NewFloat64(ctx, (double)st.st_size));
 	JS_SetPropertyStr(ctx, obj, "mtime", JS_NewFloat64(ctx, (double)st.st_mtime));
-	JS_SetPropertyStr(ctx, obj, "is_dir", JS_NewBool(ctx, S_ISDIR(st.st_mode)));
-	JS_SetPropertyStr(ctx, obj, "is_file", JS_NewBool(ctx, S_ISREG(st.st_mode)));
+	JS_SetPropertyStr(ctx, obj, "isDir", JS_NewBool(ctx, S_ISDIR(st.st_mode)));
+	JS_SetPropertyStr(ctx, obj, "isFile", JS_NewBool(ctx, S_ISREG(st.st_mode)));
 	JS_SetPropertyStr(ctx, obj, "mode", JS_NewInt32(ctx, (int32_t)(st.st_mode & 07777)));
 	return obj;
 }
@@ -435,9 +435,9 @@ void register_io_bridge(JSContext *ctx, JSValue global) {
 	JSValue io = JS_NewObject(ctx);
 
 	/* whole-file read/write */
-	JS_SetPropertyStr(ctx, io, "read_file", JS_NewCFunction(ctx, js_io_read_file, "read_file", 1));
-	JS_SetPropertyStr(ctx, io, "write_file", JS_NewCFunction(ctx, js_io_write_file, "write_file", 2));
-	JS_SetPropertyStr(ctx, io, "append_file", JS_NewCFunction(ctx, js_io_append_file, "append_file", 2));
+	JS_SetPropertyStr(ctx, io, "readFile", JS_NewCFunction(ctx, js_io_read_file, "readFile", 1));
+	JS_SetPropertyStr(ctx, io, "writeFile", JS_NewCFunction(ctx, js_io_write_file, "writeFile", 2));
+	JS_SetPropertyStr(ctx, io, "appendFile", JS_NewCFunction(ctx, js_io_append_file, "appendFile", 2));
 
 	/* string conversion */
 	JS_SetPropertyStr(ctx, io, "str2ab", JS_NewCFunction(ctx, js_io_str2ab, "str2ab", 1));

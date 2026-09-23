@@ -1,9 +1,0 @@
-// Task 3 acceptance: chain hop A. Awaits a call to chain_b before replying.
-const b_h = skynetcore.int_command("LAUNCH", "snjs test/service/async_chain_b_worker.js");
-
-skynet.start(() => {
-    skynet.dispatch("text", async (msg) => {
-        const r = await skynet.call(b_h, "text", msg + "->B");
-        return "A(" + r + ")";
-    });
-});

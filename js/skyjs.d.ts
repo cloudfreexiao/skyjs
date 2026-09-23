@@ -1,14 +1,14 @@
 // js/skyjs.d.ts -- SkyJS 运行时全局注入面的 TypeScript 类型声明，与 js/ 下
 // 运行时库同源维护（skynet.js / socket.js / sockethelper.js / cluster.js /
 // http.js / websocket.js 的注入对象 + service-src/snjs.c 注入的 skynetcore）。TypeScript 服务经
-// `/// <reference path="..." />` 引用（见 examples/ts_echo/ts_echo.ts）；
+// `/// <reference path="..." />` 引用（见 examples/ts-echo/ts-echo.ts）；
 // esbuild 只剥离类型不做检查，如需强检查可另跑 `tsc --noEmit`。API 面以
 // js/*.js 与 snjs.c 的实际注入为准（docs/DEVELOPMENT.md「C/JS 边界」），改动
 // 注入面时同步更新。
 
 // 启动参数由 snjs 在用户脚本 eval 完成后注入；同步启动阶段不可读取，详见
 // DEVELOPMENT.md「排查问题的入口」。
-declare const snjs_param: string;
+declare const snjsParam: string;
 
 /**
  * seri 解包的唯一 Lua table 目标类型（无损映射 Lua table 语义）。
@@ -43,15 +43,15 @@ declare const skynetcore: {
     send(dest: number, type: number, msg: string | ArrayBuffer | null,
         session?: number): number;
     command(cmd: string, arg?: string): string | null;
-    int_command(cmd: string, arg?: string): number;
-    gen_id(): number;
+    intCommand(cmd: string, arg?: string): number;
+    genId(): number;
     /** skynet 启动后的厘秒（10ms）计数，同原版 skynet.now */
     now(): number;
     error(msg: string): void;
     /** 本服务 JS 堆记账字节数（per-service memstat） */
     mem(): number;
     response(session: number, source: number, msg: string | ArrayBuffer | null): void;
-    error_response(session: number, source: number): void;
+    errorResponse(session: number, source: number): void;
     /** 转发消息并伪装 source（skynet.redirect 底层）；msg 原样透传 */
     redirect(dest: number, source: number, type: number, session: number,
         msg: string | ArrayBuffer | null): number;
@@ -63,15 +63,15 @@ declare const skynetcore: {
     str(buf: ArrayBuffer): string;
     /** C-layer synchronous I/O primitives (js-io.c) */
     io: {
-        read_file(path: string): ArrayBuffer;
-        write_file(path: string, data: ArrayBuffer): void;
-        append_file(path: string, data: ArrayBuffer): void;
+        readFile(path: string): ArrayBuffer;
+        writeFile(path: string, data: ArrayBuffer): void;
+        appendFile(path: string, data: ArrayBuffer): void;
         exists(path: string): boolean;
         stat(path: string): IoStatResult;
         readdir(path: string): string[];
         mkdir(path: string): void;
         remove(path: string): void;
-        rename(old_path: string, new_path: string): void;
+        rename(oldPath: string, newPath: string): void;
         open(path: string, mode: string): number;
         fread(handle: number, n: number): ArrayBuffer;
         fwrite(handle: number, data: ArrayBuffer): void;
@@ -91,7 +91,7 @@ declare const skynetcore: {
         /** 关闭 Nagle 算法（TCP_NODELAY） */
         nodelay(id: number): void;
         /** 切换本服务为 netpack 模式：DATA 走 C 帧缓冲（gateserver 使用） */
-        netpack_mode(): void;
+        netpackMode(): void;
     };
     /** netpack 帧缓冲（2 字节大端长度前缀），gateserver 使用 */
     netpack: {
@@ -116,42 +116,42 @@ declare const skynetcore: {
         sha512(data: ArrayBuffer): ArrayBuffer;
 
         // ---- HMAC (standard) ----
-        hmac_sha1(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
-        hmac_sha256(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
-        hmac_sha512(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
+        hmacSha1(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
+        hmacSha256(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
+        hmacSha512(key: ArrayBuffer, data: ArrayBuffer): ArrayBuffer;
 
         // ---- Encoding ----
-        base64_encode(data: ArrayBuffer): string;
-        base64_decode(str: string): ArrayBuffer;
-        hex_encode(data: ArrayBuffer): string;
-        hex_decode(str: string): ArrayBuffer;
+        base64Encode(data: ArrayBuffer): string;
+        base64Decode(str: string): ArrayBuffer;
+        hexEncode(data: ArrayBuffer): string;
+        hexDecode(str: string): ArrayBuffer;
 
         // ---- Utility ----
-        xor_str(data: ArrayBuffer, key: ArrayBuffer): ArrayBuffer;
-        random_bytes(n: number): ArrayBuffer;
+        xorStr(data: ArrayBuffer, key: ArrayBuffer): ArrayBuffer;
+        randomBytes(n: number): ArrayBuffer;
 
         // ---- Skynet protocol compat ----
         randomkey(): ArrayBuffer;
         hashkey(data: ArrayBuffer): ArrayBuffer;
-        des_encode(key: ArrayBuffer, text: ArrayBuffer, padding?: number): ArrayBuffer;
-        des_decode(key: ArrayBuffer, text: ArrayBuffer, padding?: number): ArrayBuffer;
+        desEncode(key: ArrayBuffer, text: ArrayBuffer, padding?: number): ArrayBuffer;
+        desDecode(key: ArrayBuffer, text: ArrayBuffer, padding?: number): ArrayBuffer;
         hmac64(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
-        hmac64_md5(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
-        hmac_hash(key: ArrayBuffer, text: ArrayBuffer): ArrayBuffer;
-        dh_exchange(key: ArrayBuffer): ArrayBuffer;
-        dh_secret(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
+        hmac64Md5(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
+        hmacHash(key: ArrayBuffer, text: ArrayBuffer): ArrayBuffer;
+        dhExchange(key: ArrayBuffer): ArrayBuffer;
+        dhSecret(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
 
         // ---- OpenSSL-only (optional, make TLS=openssl) ----
-        aes_gcm_encrypt?(key: ArrayBuffer, plaintext: ArrayBuffer, iv: ArrayBuffer,
+        aesGcmEncrypt?(key: ArrayBuffer, plaintext: ArrayBuffer, iv: ArrayBuffer,
             aad?: ArrayBuffer): { ciphertext: ArrayBuffer; tag: ArrayBuffer; iv: ArrayBuffer };
-        aes_gcm_decrypt?(key: ArrayBuffer, ciphertext: ArrayBuffer, iv: ArrayBuffer,
+        aesGcmDecrypt?(key: ArrayBuffer, ciphertext: ArrayBuffer, iv: ArrayBuffer,
             tag: ArrayBuffer, aad?: ArrayBuffer): ArrayBuffer;
-        ed25519_keypair?(): { public_key: ArrayBuffer; secret_key: ArrayBuffer };
-        ed25519_sign?(secret_key: ArrayBuffer, message: ArrayBuffer): ArrayBuffer;
-        ed25519_verify?(public_key: ArrayBuffer, message: ArrayBuffer,
+        ed25519Keypair?(): { publicKey: ArrayBuffer; secretKey: ArrayBuffer };
+        ed25519Sign?(secretKey: ArrayBuffer, message: ArrayBuffer): ArrayBuffer;
+        ed25519Verify?(publicKey: ArrayBuffer, message: ArrayBuffer,
             sig: ArrayBuffer): boolean;
-        x25519_keypair?(): { public_key: ArrayBuffer; secret_key: ArrayBuffer };
-        x25519_shared?(secret_key: ArrayBuffer, peer_public: ArrayBuffer): ArrayBuffer;
+        x25519Keypair?(): { publicKey: ArrayBuffer; secretKey: ArrayBuffer };
+        x25519Shared?(secretKey: ArrayBuffer, peerPublic: ArrayBuffer): ArrayBuffer;
     };
 
     // skynetcore.tls: TLS C-layer（js-tls.c）
@@ -162,8 +162,8 @@ declare const skynetcore: {
 interface IoStatResult {
     size: number;
     mtime: number;
-    is_dir: boolean;
-    is_file: boolean;
+    isDir: boolean;
+    isFile: boolean;
     mode: number;
 }
 
@@ -186,13 +186,13 @@ declare class IoFile {
 declare const io: {
     // ---- whole-file (synchronous) ----
     /** 读取文件全部内容，返回 ArrayBuffer */
-    read_file(path: string): ArrayBuffer;
+    readFile(path: string): ArrayBuffer;
     /** 读取文件全部内容，返回 UTF-8 字符串 */
-    read_text_file(path: string): string;
+    readTextFile(path: string): string;
     /** 写入文件（覆盖），data 可为 string/ArrayBuffer/TypedArray */
-    write_file(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
+    writeFile(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
     /** 追加写入文件 */
-    append_file(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
+    appendFile(path: string, data: string | ArrayBuffer | ArrayBufferView): void;
 
     // ---- metadata / directory (synchronous) ----
     /** 文件/目录是否存在 */
@@ -206,7 +206,7 @@ declare const io: {
     /** 删除文件或空目录 */
     remove(path: string): void;
     /** 重命名/移动文件 */
-    rename(old_path: string, new_path: string): void;
+    rename(oldPath: string, newPath: string): void;
 
     // ---- streaming File ----
     /** 打开文件，返回 IoFile 实例；mode: "r"/"w"/"a"/"rb"/"wb" 等 */
@@ -215,23 +215,23 @@ declare const io: {
 
     // ---- async API (must be called in skynet coroutine context) ----
     /** 异步读取文件全部内容 */
-    read_file_async(path: string): Promise<ArrayBuffer>;
+    readFileAsync(path: string): Promise<ArrayBuffer>;
     /** 异步读取文件为 UTF-8 字符串 */
-    read_text_file_async(path: string): Promise<string>;
+    readTextFileAsync(path: string): Promise<string>;
     /** 异步写入文件 */
-    write_file_async(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
+    writeFileAsync(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
     /** 异步追加写入文件 */
-    append_file_async(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
+    appendFileAsync(path: string, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
     /** 异步获取文件状态 */
-    stat_async(path: string): Promise<IoStatResult>;
+    statAsync(path: string): Promise<IoStatResult>;
     /** 异步列出目录 */
-    readdir_async(path: string): Promise<string[]>;
+    readdirAsync(path: string): Promise<string[]>;
     /** 异步创建目录 */
-    mkdir_async(path: string, recursive?: boolean): Promise<void>;
+    mkdirAsync(path: string, recursive?: boolean): Promise<void>;
     /** 异步删除文件或空目录 */
-    remove_async(path: string): Promise<void>;
+    removeAsync(path: string): Promise<void>;
     /** 异步重命名/移动文件 */
-    rename_async(path: string, new_path: string): Promise<void>;
+    renameAsync(path: string, newPath: string): Promise<void>;
 };
 
 declare const skynet: {
@@ -240,11 +240,11 @@ declare const skynet: {
     PTYPE_ERROR: number;
     PTYPE_LUA: number;
     PTYPE_CLIENT: number;
-    start(start_func: () => void): void;
+    start(startFunc: () => void): void;
     /** 注册消息处理；回调返回值即应答（text 返回 string，lua 返回 pack 的 ArrayBuffer） */
     dispatch<T = unknown>(typename: string,
         fn: (msg: T, source?: number, session?: number) => unknown): void;
-    register_protocol(p: { name: string; id: number; dispatch?: unknown }): void;
+    registerProtocol(p: { name: string; id: number; dispatch?: unknown }): void;
     /** call 返回 Promise；lua 协议应答为 ArrayBuffer（自行 unpack），text 解码为字符串 */
     call<T = unknown>(dest: number, typename: string,
         msg?: string | ArrayBuffer | null): Promise<T>;
@@ -266,14 +266,14 @@ declare const skynet: {
      *  否则回退到扁平 env 字符串（如 C 侧默认值） */
     getenv(key: string): any;
     now(): number;
-    mem_stat(): number;
+    memStat(): number;
     pack(...vals: unknown[]): ArrayBuffer;
     unpack(buf: ArrayBuffer | string): unknown[];
     exit(): void;
 };
 
 declare const socket: {
-    listen(host: string, port: number, on_accept: (id: number, address: string) => void,
+    listen(host: string, port: number, onAccept: (id: number, address: string) => void,
         backlog?: number): number;
     /**
      * Initiate a TCP connection.
@@ -282,11 +282,11 @@ declare const socket: {
      * to receive error/close notifications. If the connection fails before
      * start() is called, the error is silently dropped.
      */
-    connect(host: string, port: number, on_connect?: (id: number) => void): number;
+    connect(host: string, port: number, onConnect?: (id: number) => void): number;
     /** 注册数据回调；不 resume socket（resume 用 resume()）。opts.binary 时
      *  on_data 收到原始 ArrayBuffer，否则解码为 UTF-8 字符串 */
-    start(id: number, on_data: (data: string | ArrayBuffer, size: number) => void,
-        on_close?: (id: number) => void, on_error?: (id: number, msg: string) => void,
+    start(id: number, onData: (data: string | ArrayBuffer, size: number) => void,
+        onClose?: (id: number) => void, onError?: (id: number, msg: string) => void,
         opts?: { binary?: boolean }): void;
     resume(id: number): void;
     write(id: number, data: string | ArrayBuffer | ArrayBufferView): number;
@@ -304,7 +304,7 @@ declare const gateserver: {
         warning?(fd: number, size: number): void;
     }): void;
     /** 创建并启动监听 socket，返回 listen fd */
-    open(host: string, port: number, backlog?: number, max_client?: number,
+    open(host: string, port: number, backlog?: number, maxClient?: number,
         nodelay?: boolean): number;
     close(): void;
     /** 开始读取一个已接受的连接（forward/accept 之后） */
@@ -314,7 +314,7 @@ declare const gateserver: {
 
 declare const cluster: {
     init(): void;
-    set_nodes(nodes: Record<string, string>): void;
+    setNodes(nodes: Record<string, string>): void;
     open(port: number): void;
     register(name: string): void;
     /** 跨节点调用；按需 connect（失败立即 reject，同官方语义） */
@@ -338,49 +338,49 @@ declare const crypt: {
     sha512(data: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
 
     // ---- HMAC (standard) ----
-    hmac_sha1(key: string | ArrayBuffer | ArrayBufferView,
+    hmacSha1(key: string | ArrayBuffer | ArrayBufferView,
         data: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
-    hmac_sha256(key: string | ArrayBuffer | ArrayBufferView,
+    hmacSha256(key: string | ArrayBuffer | ArrayBufferView,
         data: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
-    hmac_sha512(key: string | ArrayBuffer | ArrayBufferView,
+    hmacSha512(key: string | ArrayBuffer | ArrayBufferView,
         data: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
 
     // ---- Encoding ----
     /** Base64 编码，返回字符串 */
-    base64_encode(data: string | ArrayBuffer | ArrayBufferView): string;
+    base64Encode(data: string | ArrayBuffer | ArrayBufferView): string;
     /** Base64 解码，返回 ArrayBuffer */
-    base64_decode(str: string): ArrayBuffer;
+    base64Decode(str: string): ArrayBuffer;
     /** 十六进制编码（小写），返回字符串 */
-    hex_encode(data: string | ArrayBuffer | ArrayBufferView): string;
+    hexEncode(data: string | ArrayBuffer | ArrayBufferView): string;
     /** 十六进制解码，返回 ArrayBuffer */
-    hex_decode(str: string): ArrayBuffer;
+    hexDecode(str: string): ArrayBuffer;
 
     // ---- AEAD (OpenSSL, Phase 7) ----
     /** AES-256-GCM 加密；无 OpenSSL 时抛出错误 */
-    aes_gcm_encrypt(key: ArrayBuffer, plaintext: ArrayBuffer, iv: ArrayBuffer,
+    aesGcmEncrypt(key: ArrayBuffer, plaintext: ArrayBuffer, iv: ArrayBuffer,
         aad?: ArrayBuffer): { ciphertext: ArrayBuffer; tag: ArrayBuffer; iv: ArrayBuffer };
     /** AES-256-GCM 解密；无 OpenSSL 时抛出错误 */
-    aes_gcm_decrypt(key: ArrayBuffer, ciphertext: ArrayBuffer, iv: ArrayBuffer,
+    aesGcmDecrypt(key: ArrayBuffer, ciphertext: ArrayBuffer, iv: ArrayBuffer,
         tag: ArrayBuffer, aad?: ArrayBuffer): ArrayBuffer;
 
     // ---- Ed25519 (OpenSSL, Phase 7) ----
-    ed25519_keypair(): { public_key: ArrayBuffer; secret_key: ArrayBuffer };
-    ed25519_sign(secret_key: ArrayBuffer, message: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
-    ed25519_verify(public_key: ArrayBuffer, message: string | ArrayBuffer | ArrayBufferView,
+    ed25519Keypair(): { publicKey: ArrayBuffer; secretKey: ArrayBuffer };
+    ed25519Sign(secretKey: ArrayBuffer, message: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
+    ed25519Verify(publicKey: ArrayBuffer, message: string | ArrayBuffer | ArrayBufferView,
         sig: ArrayBuffer): boolean;
 
     // ---- X25519 (OpenSSL, Phase 7) ----
-    x25519_keypair(): { public_key: ArrayBuffer; secret_key: ArrayBuffer };
-    x25519_shared(secret_key: ArrayBuffer, peer_public: ArrayBuffer): ArrayBuffer;
+    x25519Keypair(): { publicKey: ArrayBuffer; secretKey: ArrayBuffer };
+    x25519Shared(secretKey: ArrayBuffer, peerPublic: ArrayBuffer): ArrayBuffer;
 
     // ---- Utility ----
     /** 生成 n 字节密码学安全随机数 */
-    random_bytes(n: number): ArrayBuffer;
+    randomBytes(n: number): ArrayBuffer;
     /**
      * XOR data with key. WARNING: This modifies `data` in-place and returns
      * the same ArrayBuffer. If you need the original data, copy it first.
      */
-    xor_str(data: string | ArrayBuffer | ArrayBufferView,
+    xorStr(data: string | ArrayBuffer | ArrayBufferView,
         key: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
 
     // ---- Skynet protocol compat ----
@@ -389,21 +389,21 @@ declare const crypt: {
     /** DJB+JS 双 hash，返回 8 字节 */
     hashkey(data: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
     /** DES 加密；padding 默认 iso7816_4(0)，可选 pkcs7(1) */
-    des_encode(key: ArrayBuffer, text: string | ArrayBuffer | ArrayBufferView,
+    desEncode(key: ArrayBuffer, text: string | ArrayBuffer | ArrayBufferView,
         padding?: number): ArrayBuffer;
     /** DES 解密 */
-    des_decode(key: ArrayBuffer, text: ArrayBuffer,
+    desDecode(key: ArrayBuffer, text: ArrayBuffer,
         padding?: number): ArrayBuffer;
     /** skynet hmac64（MD5-based，8 字节输入输出） */
     hmac64(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
     /** skynet hmac64_md5（8 字节输入输出） */
-    hmac64_md5(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
+    hmac64Md5(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
     /** hashkey(text) 后与 key 做 hmac64 */
-    hmac_hash(key: ArrayBuffer, text: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
+    hmacHash(key: ArrayBuffer, text: string | ArrayBuffer | ArrayBufferView): ArrayBuffer;
     /** DH 密钥交换：g^key mod p，返回 8 字节 */
-    dh_exchange(key: ArrayBuffer): ArrayBuffer;
+    dhExchange(key: ArrayBuffer): ArrayBuffer;
     /** DH 共享密钥：x^y mod p，返回 8 字节 */
-    dh_secret(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
+    dhSecret(x: ArrayBuffer, y: ArrayBuffer): ArrayBuffer;
 };
 
 // --------------- sockethelper (js/sockethelper.js) ---------------
@@ -412,7 +412,7 @@ declare const crypt: {
 declare class BufferedReader {
     readonly fd: number;
     closed: boolean;
-    error_msg: string | null;
+    errorMsg: string | null;
 
     constructor(fd: number);
 
@@ -426,7 +426,7 @@ declare class BufferedReader {
 
 declare const sockethelper: {
     /** 哨兵对象，=== 比较区分 socket 错误和逻辑错误 */
-    readonly socket_error: object;
+    readonly socketError: object;
     /** BufferedReader 构造器 */
     BufferedReader: typeof BufferedReader;
     /** 带超时的 TCP 连接；timeout 单位厘秒（10ms），省略则无超时 */
@@ -454,7 +454,7 @@ interface HttpdReadResult {
 
 declare const httpd: {
     /** 从 BufferedReader 读取并解析 HTTP 请求 */
-    read_request(reader: BufferedReader, bodylimit?: number): Promise<HttpdReadResult>;
+    readRequest(reader: BufferedReader, bodylimit?: number): Promise<HttpdReadResult>;
     /**
      * 写出 HTTP 响应。
      *   write_fn: 写函数（同 sockethelper.writefunc 返回值）
@@ -463,8 +463,8 @@ declare const httpd: {
      *   header: 响应头对象（值为数组时写多个同名头）
      * 返回 true 成功，false 写入失败
      */
-    write_response(
-        write_fn: (data: string | ArrayBuffer | ArrayBufferView) => void,
+    writeResponse(
+        writeFn: (data: string | ArrayBuffer | ArrayBufferView) => void,
         statuscode: number,
         body: string | (() => string | null) | null,
         header?: Record<string, string | string[]>
@@ -506,7 +506,7 @@ declare const httpc: {
         method: string,
         hostname: string,
         url: string,
-        recv_header_out?: Record<string, string | string[]>,
+        recvHeaderOut?: Record<string, string | string[]>,
         header?: Record<string, string | string[]>,
         content?: string
     ): Promise<HttpcResponse>;
@@ -515,7 +515,7 @@ declare const httpc: {
     get(
         hostname: string,
         url: string,
-        recv_header_out?: Record<string, string | string[]>,
+        recvHeaderOut?: Record<string, string | string[]>,
         header?: Record<string, string | string[]>
     ): Promise<{ status: number; body: string }>;
 
@@ -524,23 +524,23 @@ declare const httpc: {
         hostname: string,
         url: string,
         form: Record<string, string>,
-        recv_header_out?: Record<string, string | string[]>
+        recvHeaderOut?: Record<string, string | string[]>
     ): Promise<{ status: number; body: string }>;
 
     /** HTTP HEAD，仅返回状态码 */
     head(
         hostname: string,
         url: string,
-        recv_header_out?: Record<string, string | string[]>,
+        recvHeaderOut?: Record<string, string | string[]>,
         header?: Record<string, string | string[]>
     ): Promise<number>;
 
     /** 流式 HTTP 请求 */
-    request_stream(
+    requestStream(
         method: string,
         hostname: string,
         url: string,
-        recv_header_out?: Record<string, string | string[]>,
+        recvHeaderOut?: Record<string, string | string[]>,
         header?: Record<string, string | string[]>,
         content?: string
     ): Promise<HttpcStream>;
@@ -548,41 +548,41 @@ declare const httpc: {
     /** URL 编码：保留 A-Za-z0-9_-.~（RFC 3986 unreserved），其余 → %XX */
     escape(str: string): string;
     /** URL 路径解析：按 ? 分割，解码 path */
-    url_parse(url: string): { path: string; query: string };
+    urlParse(url: string): { path: string; query: string };
     /** URL 查询字符串解析：k=v&k2=v2，重复键合并为数组 */
-    url_parse_query(q: string): Record<string, string | string[]>;
+    urlParseQuery(q: string): Record<string, string | string[]>;
     /** 完整 URL 解析：protocol://host:port/path */
-    parse_url(url: string): HttpcUrlParsed;
+    parseUrl(url: string): HttpcUrlParsed;
     /** 关闭所有 Keep-Alive 连接 */
-    close_all_keepalive(): void;
+    closeAllKeepalive(): void;
 };
 
 // --------------- http_internal (js/http.js) ---------------
 // 内部解析函数，供 websocket.js 复用 HTTP 升级握手的头解析。
 
-declare const http_internal: {
+declare const httpInternal: {
     /** 从 reader 读取 HTTP 头行直到空行 */
-    recv_header(reader: BufferedReader): Promise<{ lines: string[]; ok: boolean }>;
+    recvHeader(reader: BufferedReader): Promise<{ lines: string[]; ok: boolean }>;
     /** 解析 "Name: Value" 头行，名称小写化，支持行折叠与重复头 */
-    parse_header(
+    parseHeader(
         lines: string[],
         from: number,
         header?: Record<string, string | string[]>
     ): Record<string, string | string[]> | null;
     /** 读取 chunked 编码体 */
-    recv_chunked_body(
+    recvChunkedBody(
         reader: BufferedReader,
         bodylimit: number | null,
         header: Record<string, string | string[]>
     ): Promise<{ body: string; header: Record<string, string | string[]> } | null>;
     /** 根据 content-length/状态码读取响应体 */
-    recv_body(
+    recvBody(
         reader: BufferedReader,
         code: number,
         header: Record<string, string | string[]>
     ): Promise<string>;
     /** HTTP 状态码 → 原因短语表 */
-    readonly http_status_msg: Record<number, string>;
+    readonly httpStatusMsg: Record<number, string>;
 };
 
 // --------------- websocket (js/websocket.js) ---------------
@@ -595,7 +595,7 @@ interface WebSocketHandler {
     handshake?(id: number, header: Record<string, string | string[]>,
         url: string): void;
     /** 收到消息；msg 为 ArrayBuffer，msg_type 为 "text" | "binary" */
-    message(id: number, msg: ArrayBuffer, msg_type: string): void;
+    message(id: number, msg: ArrayBuffer, msgType: string): void;
     /** 收到 ping */
     ping?(id: number): void;
     /** 收到 pong */
@@ -690,8 +690,8 @@ declare const websocket: {
     addrinfo(id: number): string;
 
     /** 获取 x-real-ip 头（反向代理） */
-    real_ip(id: number): string;
+    realIp(id: number): string;
 
     /** 检查连接是否已关闭 */
-    is_close(id: number): boolean;
+    isClose(id: number): boolean;
 };

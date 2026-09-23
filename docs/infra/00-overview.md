@@ -14,7 +14,7 @@ P0：
 - HTTP 应用与流媒体传输（`webapp` + `httpd/httpc` 流式扩展）。
 - 文件/归档/子进程/密码学（`fs`、`archive`、`subprocess`、`crypt` 扩展）。
 - 跨平台媒体与标签（`media`、`tag`）。
-- 受限插件宿主（`snplugin` loader + `plugin_host`）。
+- 受限插件宿主（`snplugin` loader + `pluginHost`）。
 
 P1：
 - 配置、日志、指标（`config`、`log`、`metrics`）。

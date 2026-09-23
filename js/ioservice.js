@@ -18,21 +18,21 @@ skynet.start(() => {
         try {
             switch (op) {
             case "read_file": {
-                const ab = io.read_file(args[1]);
-                return skynet.pack(true, crypt.base64_encode(ab));
+                const ab = io.readFile(args[1]);
+                return skynet.pack(true, crypt.base64Encode(ab));
             }
             case "read_text_file": {
-                const text = io.read_text_file(args[1]);
+                const text = io.readTextFile(args[1]);
                 return skynet.pack(true, text);
             }
             case "write_file": {
-                const ab = crypt.base64_decode(args[2]);
-                io.write_file(args[1], ab);
+                const ab = crypt.base64Decode(args[2]);
+                io.writeFile(args[1], ab);
                 return skynet.pack(true);
             }
             case "append_file": {
-                const ab = crypt.base64_decode(args[2]);
-                io.append_file(args[1], ab);
+                const ab = crypt.base64Decode(args[2]);
+                io.appendFile(args[1], ab);
                 return skynet.pack(true);
             }
             case "stat": {

@@ -5,8 +5,14 @@
   "description": "SkyJS: pure-C skynet kernel with QuickJS (quickjs-ng) service runtime",
   "scripts": {
     "build": "make",
-    "lint": "node tools/lint.js js test/service tools",
-    "test": "node tools/run_tests.js",
-    "interop": "node tools/run_interop.js"
+    "lint": "eslint .",
+    "test": "node tools/run-tests.js",
+    "interop": "node tools/run-interop.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.11.0",
+    "@typescript-eslint/eslint-plugin": "^8.70.1",
+    "@typescript-eslint/parser": "^8.70.1",
+    "eslint": "^10.11.0"
   }
 }

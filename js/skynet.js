@@ -1,5 +1,5 @@
 // skyjs async service core (Task 3).
-// Loaded by snjs before the user script (env key "js_loader", default "./js/skynet.js").
+// Loaded by snjs before the user script (env key "jsLoader", default "./js/skynet.js").
 // The C layer then calls globalThis.dispatch (wrapped by __snjs_wrap) with
 // (msg, session, source, type).
 //
@@ -132,41 +132,41 @@
     const PTYPE_SOCKET = 6;
 
     const proto = {};                 // id -> { name, id, dispatch }
-    const pending_calls = new Map();   // session -> { resolve, reject }
-    const pending_timers = new Map();  // session -> fn
-    let socket_handler = null;
-    let cluster_resp_handler = null;
-    let cluster_err_handler = null;
+    const pendingCalls = new Map();   // session -> { resolve, reject }
+    const pendingTimers = new Map();  // session -> fn
+    let socketHandler = null;
+    let clusterRespHandler = null;
+    let clusterErrHandler = null;
 
-    function register_protocol(p) {
+    function registerProtocol(p) {
         if (typeof p.id !== "number" || p.id < 0 || p.id > 255) throw new Error("invalid protocol id");
         proto[p.id] = p;
     }
 
-    register_protocol({ name: "text", id: PTYPE_TEXT });
-    register_protocol({ name: "lua", id: PTYPE_LUA });
-    register_protocol({ name: "client", id: PTYPE_CLIENT });
+    registerProtocol({ name: "text", id: PTYPE_TEXT });
+    registerProtocol({ name: "lua", id: PTYPE_LUA });
+    registerProtocol({ name: "client", id: PTYPE_CLIENT });
 
-    function find_type(typename) {
+    function findType(typename) {
         for (const k in proto) {
             if (proto[k].name === typename) return proto[k].id;
         }
         throw new Error("Unknown protocol " + typename);
     }
 
-    function skynet_dispatch(typename, fn) {
-        const id = find_type(typename);
+    function skynetDispatch(typename, fn) {
+        const id = findType(typename);
         proto[id].dispatch = fn;
     }
 
-    function skynet_call(addr, typename, msg) {
-        const type = find_type(typename);
-        const session = skynetcore.gen_id();
+    function skynetCall(addr, typename, msg) {
+        const type = findType(typename);
+        const session = skynetcore.genId();
         // responses cross as raw bytes (binary-safe); text protocols decode here
-        const is_binary = (type === PTYPE_LUA);
+        const isBinary = (type === PTYPE_LUA);
         return new Promise((resolve, reject) => {
-            pending_calls.set(session, {
-                resolve: v => resolve(is_binary ? v : (v instanceof ArrayBuffer ? skynetcore.str(v) : v)),
+            pendingCalls.set(session, {
+                resolve: v => resolve(isBinary ? v : (v instanceof ArrayBuffer ? skynetcore.str(v) : v)),
                 reject,
             });
             // ArrayBuffer payloads (skynet.pack) cross untouched; everything else
@@ -174,7 +174,7 @@
             const payload = (msg === undefined || msg === null) ? "" : msg;
             const r = skynetcore.send(addr, type, payload, session);
             if (r < 0) {
-                pending_calls.delete(session);
+                pendingCalls.delete(session);
                 reject(new Error("skynet.call: send to " + addr + " failed"));
             }
         });
@@ -182,8 +182,8 @@
 
     // fire-and-forget send (no session). lua payloads pack args to a seri
     // stream (binary-safe); text sends a single string argument.
-    function skynet_send(addr, typename, ...args) {
-        const type = find_type(typename);
+    function skynetSend(addr, typename, ...args) {
+        const type = findType(typename);
         const payload = (type === PTYPE_LUA)
             ? skynetcore.pack(...args)
             : (args.length === 0 || args[0] === undefined || args[0] === null ? "" : args[0]);
@@ -192,89 +192,89 @@
 
     // redirect: forward a message with a spoofed source (skynet.redirect).
     // msg crosses untouched (string or ArrayBuffer, e.g. a raw client frame).
-    function skynet_redirect(dest, source, typename, session, msg) {
-        const type = find_type(typename);
+    function skynetRedirect(dest, source, typename, session, msg) {
+        const type = findType(typename);
         return skynetcore.redirect(dest, source, type, session | 0,
             (msg === undefined || msg === null) ? "" : msg);
     }
 
-    function skynet_timeout(ti, fn) {
+    function skynetTimeout(ti, fn) {
         // ti is in centiseconds (10ms units), same as skynet.lua
-        const s = skynetcore.int_command("TIMEOUT", String(ti));
-        pending_timers.set(s, fn);
+        const s = skynetcore.intCommand("TIMEOUT", String(ti));
+        pendingTimers.set(s, fn);
         return s;
     }
 
-    function skynet_sleep(ms) {
-        return new Promise(resolve => skynet_timeout(Math.max(1, Math.round(ms / 10)), resolve));
+    function skynetSleep(ms) {
+        return new Promise(resolve => skynetTimeout(Math.max(1, Math.round(ms / 10)), resolve));
     }
 
-    function skynet_fork(fn) {
+    function skynetFork(fn) {
         return Promise.resolve().then(fn).catch((e) => {
             skynetcore.error("fork error: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
         });
     }
 
-    function skynet_newservice(name, param) {
-        return skynetcore.int_command("LAUNCH", param ? (name + " " + param) : name);
+    function skynetNewservice(name, param) {
+        return skynetcore.intCommand("LAUNCH", param ? (name + " " + param) : name);
     }
 
-    function skynet_self() {
+    function skynetSelf() {
         const r = skynetcore.command("REG");   // ":hex"
         return r ? parseInt(r.slice(1), 16) : 0;
     }
 
-    function skynet_register(name) {
+    function skynetRegister(name) {
         const self = skynetcore.command("REG");
         skynetcore.command("NAME", "." + name + " " + self);
     }
 
     // socket events come pre-parsed as {type, id, ud, data} objects (snjs.c);
     // js/socket.js installs the actual handler via __snjs_set_socket_handler.
-    globalThis.__snjs_set_socket_handler = function (fn) { socket_handler = fn; };
+    globalThis.__snjs_set_socket_handler = function (fn) { socketHandler = fn; };
     // js/cluster.js installs handlers for responses that don't belong to skynet.call
     // (cluster.call bookkeeping): (session, payload) and (session, source)
     globalThis.__snjs_set_cluster_handlers = function (resp, err) {
-        cluster_resp_handler = resp;
-        cluster_err_handler = err;
+        clusterRespHandler = resp;
+        clusterErrHandler = err;
     };
 
     // internal router: the C layer calls this (through __snjs_wrap) for every message
-    function internal_dispatch(msg, session, source, type) {
+    function internalDispatch(msg, session, source, type) {
         if (type === PTYPE_SOCKET) {
-            if (socket_handler) socket_handler(msg);
+            if (socketHandler) socketHandler(msg);
             return;
         }
         if (type === PTYPE_RESPONSE) {
             // routing order: skynet.call sessions, then timer sessions, and only
             // as a last resort the cluster bridge (its handler ignores unknown
             // sessions, so putting it first would swallow TIMEOUT replies)
-            const p = pending_calls.get(session);
+            const p = pendingCalls.get(session);
             if (p) {
-                pending_calls.delete(session);
+                pendingCalls.delete(session);
                 p.resolve(msg);
                 return;
             }
-            const t = pending_timers.get(session);
+            const t = pendingTimers.get(session);
             if (t) {
-                pending_timers.delete(session);
+                pendingTimers.delete(session);
                 t();
                 return;
             }
-            if (cluster_resp_handler) {
-                cluster_resp_handler(session, msg);
+            if (clusterRespHandler) {
+                clusterRespHandler(session, msg);
             }
             return;
         }
         if (type === PTYPE_ERROR) {
-            const p = pending_calls.get(session);
+            const p = pendingCalls.get(session);
             if (p) {
-                pending_calls.delete(session);
+                pendingCalls.delete(session);
                 p.reject(new Error("skynet.call: error response from :" + source.toString(16)));
                 return;
             }
-            if (cluster_err_handler) {
-                cluster_err_handler(session, source);
+            if (clusterErrHandler) {
+                clusterErrHandler(session, source);
             }
             return;
         }
@@ -292,7 +292,7 @@
     globalThis.__snjs_wrap = function (ud) {
         // client messages arrive via skynet.redirect with session=fd and must
         // never auto-reply; RESPONSE/ERROR are fully handled by internal_dispatch
-        const wants_reply = (session, type) =>
+        const wantsReply = (session, type) =>
             session !== 0 && type !== PTYPE_RESPONSE && type !== PTYPE_ERROR && type !== PTYPE_CLIENT;
         return function (msg, session, source, type) {
             let ret;
@@ -300,13 +300,13 @@
                 ret = ud(msg, session, source, type);
             } catch (e) {
                 skynetcore.error("dispatch error: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
-                if (wants_reply(session, type)) skynetcore.error_response(session, source);
+                if (wantsReply(session, type)) skynetcore.errorResponse(session, source);
                 return;
             }
             if (ret && typeof ret.then === "function") {
                 return ret.then(
                     v => {
-                        if (wants_reply(session, type)) {
+                        if (wantsReply(session, type)) {
                             // pass through as-is: string or ArrayBuffer (lua payloads)
                             skynetcore.response(session, source, v === undefined ? "" : v);
                         }
@@ -314,26 +314,26 @@
                     },
                     e => {
                         skynetcore.error("dispatch rejected: " + (e && (e.message || e)) + "\n" + (e && e.stack || ""));
-                        if (wants_reply(session, type)) {
-                            skynetcore.error_response(session, source);
+                        if (wantsReply(session, type)) {
+                            skynetcore.errorResponse(session, source);
                         }
                     }
                 );
             }
-            if (wants_reply(session, type)) {
+            if (wantsReply(session, type)) {
                 skynetcore.response(session, source, ret === undefined ? "" : ret);
             }
             return ret;
         };
     };
 
-    globalThis.dispatch = internal_dispatch;
+    globalThis.dispatch = internalDispatch;
 
     // console.* debug surface: every level funnels into the skynet log channel
     // (via skynetcore.error) so output stays unified in the logger, prefixed
     // with the service handle. Non-string values are rendered recursively:
     // Maps as entries, BigInt with a trailing "n", binary as length summaries.
-    function to_display(v, depth) {
+    function toDisplay(v, depth) {
         if (v === null) return "null";
         if (v === undefined) return "undefined";
         const t = typeof v;
@@ -347,22 +347,22 @@
             Array.from(v.slice(0, 16)).map(x => x.toString(16).padStart(2, "0")).join(" ") +
             (v.length > 16 ? " ..." : "") + "]>";
         if (v instanceof Array) {
-            return "[" + v.map(x => to_display(x, depth + 1)).join(", ") + "]";
+            return "[" + v.map(x => toDisplay(x, depth + 1)).join(", ") + "]";
         }
         if (typeof globalThis.LuaTable === "function" && v instanceof globalThis.LuaTable) {
-            const parts = v.array.map(x => to_display(x, depth + 1));
+            const parts = v.array.map(x => toDisplay(x, depth + 1));
             for (const [k, val] of v.hash) {
-                parts.push(to_display(k, depth + 1) + ": " + to_display(val, depth + 1));
+                parts.push(toDisplay(k, depth + 1) + ": " + toDisplay(val, depth + 1));
             }
             return "LuaTable{ " + parts.join(", ") + " }";
         }
         if (v instanceof Map) {
             return "{ " + Array.from(v.entries()).map(e =>
-                to_display(e[0], depth + 1) + ": " + to_display(e[1], depth + 1)).join(", ") + " }";
+                toDisplay(e[0], depth + 1) + ": " + toDisplay(e[1], depth + 1)).join(", ") + " }";
         }
         if (t === "object") {
             try {
-                return "{ " + Object.keys(v).map(k => k + ": " + to_display(v[k], depth + 1)).join(", ") + " }";
+                return "{ " + Object.keys(v).map(k => k + ": " + toDisplay(v[k], depth + 1)).join(", ") + " }";
             } catch (e) {
                 return String(v);
             }
@@ -370,17 +370,17 @@
         return String(v);
     }
 
-    function console_line(args) {
-        return args.map(a => to_display(a, 0)).join(" ");
+    function consoleLine(args) {
+        return args.map(a => toDisplay(a, 0)).join(" ");
     }
 
     // printf-style formatting, a subset of node's util.format: enabled only
     // when the first argument is a string holding "%"; unknown specifiers and
     // out-of-argument placeholders stay literal, extra arguments are appended
     const FORMAT_SPECS = "sdifjo%";
-    function format_line(args) {
+    function formatLine(args) {
         if (typeof args[0] !== "string" || args[0].indexOf("%") < 0) {
-            return console_line(args);
+            return consoleLine(args);
         }
         const fmt = args[0];
         const rest = args.slice(1);
@@ -398,7 +398,7 @@
             if (ri >= rest.length) { out += "%" + spec; continue; }
             const v = rest[ri++];
             if (spec === "s") {
-                out += (typeof v === "string") ? v : to_display(v, 0);
+                out += (typeof v === "string") ? v : toDisplay(v, 0);
             } else if (spec === "d" || spec === "i") {
                 const n = (typeof v === "bigint") ? v : parseInt(v, 10);
                 out += String(n);
@@ -407,11 +407,11 @@
             } else if (spec === "j") {
                 try { out += JSON.stringify(v); } catch (e) { out += "[unserializable]"; }
             } else {  // %o / %O
-                out += to_display(v, 0);
+                out += toDisplay(v, 0);
             }
         }
         while (ri < rest.length) {
-            out += " " + to_display(rest[ri++], 0);
+            out += " " + toDisplay(rest[ri++], 0);
         }
         return out;
     }
@@ -419,36 +419,36 @@
     // console.time family: wall-clock via Date.now(), purely observational --
     // nothing here ever suspends a dispatch, so the worker-thread guarantee
     // of the scheduling model is untouched
-    const time_labels = new Map();
-    const time_label = (label) => (label === undefined ? "default" : label);
-    function elapsed_line(prefix, label, args) {
-        const t0 = time_labels.get(label);
+    const timeLabels = new Map();
+    const timeLabel = (label) => (label === undefined ? "default" : label);
+    function elapsedLine(prefix, label, args) {
+        const t0 = timeLabels.get(label);
         if (t0 === undefined) {
             return prefix + ": no such label '" + label + "'";
         }
         let line = label + ": " + (Date.now() - t0) + "ms";
-        if (args.length) line += " " + console_line(args);
+        if (args.length) line += " " + consoleLine(args);
         return line;
     }
 
-    const console_obj = {};
+    const consoleObj = {};
     for (const level of ["log", "info", "debug", "warn", "error", "trace"]) {
-        console_obj[level] = function (...args) { skynetcore.error(format_line(args)); };
+        consoleObj[level] = function (...args) { skynetcore.error(formatLine(args)); };
     }
     // standard console API names (web/node surface), like console.log itself
-    console_obj.time = function (label) {
-        time_labels.set(time_label(label), Date.now());
+    consoleObj.time = function (label) {
+        timeLabels.set(timeLabel(label), Date.now());
     };
-    console_obj.timeLog = function (label, ...args) {
-        const k = time_label(label);
-        skynetcore.error(elapsed_line("console.timeLog", k, args));
+    consoleObj.timeLog = function (label, ...args) {
+        const k = timeLabel(label);
+        skynetcore.error(elapsedLine("console.timeLog", k, args));
     };
-    console_obj.timeEnd = function (label, ...args) {
-        const k = time_label(label);
-        skynetcore.error(elapsed_line("console.timeEnd", k, args));
-        time_labels.delete(k);
+    consoleObj.timeEnd = function (label, ...args) {
+        const k = timeLabel(label);
+        skynetcore.error(elapsedLine("console.timeEnd", k, args));
+        timeLabels.delete(k);
     };
-    globalThis.console = console_obj;
+    globalThis.console = consoleObj;
 
     // skynet.getenv: the C layer (platform/main.c) stashes the raw JSON config
     // text under "__json_config" and flattens primitive top-level keys into the
@@ -459,18 +459,18 @@
     // flat env string via GETENV.
     let _config = null;
 
-    function deep_freeze(obj) {
+    function deepFreeze(obj) {
         if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
             Object.freeze(obj);
-            Object.values(obj).forEach(deep_freeze);
+            Object.values(obj).forEach(deepFreeze);
         }
         return obj;
     }
 
-    function skynet_getenv(key) {
+    function skynetGetenv(key) {
         if (!_config) {
             const raw = skynetcore.command("GETENV", "__json_config");
-            _config = deep_freeze(raw ? JSON.parse(raw) : {});
+            _config = deepFreeze(raw ? JSON.parse(raw) : {});
         }
         if (key in _config) {
             return _config[key];
@@ -480,21 +480,21 @@
 
     globalThis.skynet = {
         PTYPE_TEXT, PTYPE_RESPONSE, PTYPE_ERROR, PTYPE_LUA, PTYPE_CLIENT,
-        start: function (start_func) { start_func(); },
-        dispatch: skynet_dispatch,
-        register_protocol,
-        call: skynet_call,
-        send: skynet_send,
-        redirect: skynet_redirect,
-        timeout: skynet_timeout,
-        sleep: skynet_sleep,
-        fork: skynet_fork,
-        newservice: skynet_newservice,
-        self: skynet_self,
-        register: skynet_register,
-        getenv: skynet_getenv,
+        start: function (startFunc) { startFunc(); },
+        dispatch: skynetDispatch,
+        registerProtocol,
+        call: skynetCall,
+        send: skynetSend,
+        redirect: skynetRedirect,
+        timeout: skynetTimeout,
+        sleep: skynetSleep,
+        fork: skynetFork,
+        newservice: skynetNewservice,
+        self: skynetSelf,
+        register: skynetRegister,
+        getenv: skynetGetenv,
         now: function () { return skynetcore.now(); },
-        mem_stat: function () { return skynetcore.mem(); },
+        memStat: function () { return skynetcore.mem(); },
         pack: function (...args) { return skynetcore.pack(...args); },
         unpack: function (buf) { return skynetcore.unpack(buf); },
         exit: function () { skynetcore.command("EXIT"); },

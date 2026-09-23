@@ -2,7 +2,7 @@
 build/
 cservice/*.so
 test/cservice/*.so
-test/seri_tool
+test/seri-tool
 /skyjs
 /skyjs.exe
 *.dSYM
@@ -10,6 +10,6 @@ test/seri_tool
 # JS dev toolchain (lint / TS build)
 node_modules/
 # esbuild-generated JS from the TypeScript example (reproducible via build.sh)
-examples/ts_echo/ts_echo.js
+examples/ts-echo/ts-echo.js
 
 .vscode

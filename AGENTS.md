@@ -19,18 +19,21 @@ SkyJS 将 [Skynet](https://github.com/cloudwu/skynet)（submodule `3rd/skynet/`�
 ```sh
 git submodule update --init     # 首次：拉取 skynet + quickjs-ng
 make                            # 构建 ./skyjs + cservice/*.so + test 服务
-make test/seri_tool             # lua-seri 对拍工具
-make lint                       # JS 静态检查（提交前必跑，零依赖）
-./skyjs test/config_core.json        # 运行（CWD 必须是仓库根目录）
+make test/seri-tool             # lua-seri 对拍工具
+npm install                     # 首次：装 JS 开发工具链（eslint 等 devDeps）
+npm run lint                    # JS 静态检查（提交前必跑，eslint flat config）
+./skyjs test/config-core.json        # 运行（CWD 必须是仓库根目录）
 ```
 
 ## 硬性约束
 
 1. **永不修改 `3rd/` 下文件**；需要内核能力时扩展 `platform/` 或 `service-src/`。
 2. **协议兼容最高优先级**：影响 lua-seri 字节格式或 cluster 线协议的改动，必须
-   用 `test/seri_tool` 对拍 / 与原版节点互通验证。
-3. **编码规范**：JS 标识符一律 lower_snake_case（无连写豁免，对齐 skynet 生态），
-   C 注入名同规则、JS/C 同步改名；禁 `var`；协议层兼容细节见 DEVELOPMENT.md。
+   用 `test/seri-tool` 对拍 / 与原版节点互通验证。
+3. **编码规范**：JS 标识符一律 lowerCamelCase（类 UpperCamelCase、常量 UPPER_SNAKE），
+   C 注入名同规则、JS/C 同步改名；禁 `var`；协议串/env 键/算法域名词冻结不改
+   （如 io RPC op 串 `"read_file"`、`jsMemLimit` env 键、`iso7816_4`）；协议层兼容细节见
+   DEVELOPMENT.md。
 4. **功能边界**：未实现清单（harbor master-slave、snlua、inject、sharetable、snax
    等）见 DEVELOPMENT.md——未实现 ≠ 永久排除，引入前先与用户确认设计，勿擅自实现。
 5. **平台基线** macOS/arm64；Linux 分支未实测（socket_server.c epoll 路径）。
@@ -41,4 +44,4 @@ make lint                       # JS 静态检查（提交前必跑，零依赖�
 ## 排查入口
 
 日志用 `console.*`（映射 skynet 日志通道）或 `skynetcore.error`；内存看
-`skynetcore.mem()` + `js_memlimit`；死循环用 SIGNAL 打断。详见 DEVELOPMENT.md。
+`skynetcore.mem()` + `jsMemLimit`；死循环用 SIGNAL 打断。详见 DEVELOPMENT.md。

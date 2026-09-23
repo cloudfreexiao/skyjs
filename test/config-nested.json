@@ -1,0 +1,34 @@
+{
+    "thread": 2,
+    "start": 1,
+    "logger": null,
+    "logservice": "logger",
+    "bootstrap": "snjs test/service/nested-config-main.js",
+    "cpath": "cservice/?.so",
+    "bootstrapParam": "test/service/nested-config-main.js",
+    "jsMemLimit": 268435456,
+    "testNumber": 42,
+    "testFloat": 3.14,
+    "testBoolTrue": true,
+    "testBoolFalse": false,
+    "testString": "hello world",
+    "testNull": null,
+    "testObject": {
+        "host": "127.0.0.1",
+        "port": 8080,
+        "nested": {
+            "deep": true
+        }
+    },
+    "testArray": [
+        1,
+        2,
+        3
+    ],
+    "testMixedArray": [
+        "a",
+        1,
+        true,
+        null
+    ]
+}

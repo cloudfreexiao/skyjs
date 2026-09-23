@@ -39,6 +39,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install JS lint deps
+        run: npm ci
+
       - name: Install OpenSSL (macOS)
         if: matrix.tls == 'openssl' && runner.os == 'macOS'
         run: brew install openssl@3 || true
@@ -51,7 +54,7 @@ jobs:
         run: make ${{ matrix.tls == 'openssl' && 'TLS=openssl' || '' }}
 
       - name: Lint
-        run: make lint
+        run: npm run lint
 
       - name: Test
         run: make ${{ matrix.tls == 'openssl' && 'TLS=openssl' || '' }} test
@@ -80,8 +83,8 @@ jobs:
 
       - name: Lint
         shell: msys2 {0}
-        run: make lint
+        run: npm ci && npm run lint
 
       # Windows: make test 暂时跳过。
-      # 测试套件 (tools/run_tests.js) 依赖 POSIX 信号、lsof 等工具链，
+      # 测试套件 (tools/run-tests.js) 依赖 POSIX 信号、lsof 等工具链，
       # 在 MSYS2/MinGW 环境下需要额外适配，后续再启用。

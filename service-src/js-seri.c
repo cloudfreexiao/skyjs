@@ -38,7 +38,7 @@
 
 #include "skynet.h"
 #include "skynet_malloc.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 
 #define TYPE_NIL 0
 #define TYPE_BOOLEAN 1

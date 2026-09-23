@@ -1,8 +1,8 @@
 # SkyJS vs 原版 Skynet 性能对比压测
 
 对比 SkyJS（QuickJS 服务）与原版 skynet（Lua 服务）的性能基线。工具链：
-[tools/run_bench.js](../tools/run_bench.js)（零依赖 harness）+ 两侧逐场景镜像的
-bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --phase all --repeat 3`）；
+[tools/run-bench.js](../tools/run-bench.js)（零依赖 harness）+ 两侧逐场景镜像的
+bench 脚本。运行方式：`make bench`（等价 `node tools/run-bench.js --phase all --repeat 3`）；
 可选 `PHASE=core|cluster|socket|mem`、`REPEAT=N`。内存扩容曲线单跑：`make bench PHASE=mem`
 （可用 `--counts 0,100,500` 或 `MEM_COUNTS` 覆盖档位、`--settle` 覆盖稳态等待）。
 
@@ -22,7 +22,7 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 5. **cluster 对称**：每对组合双向都测（节点 A 先跑，然后经控制通道触发 B 反向）；
    端口 2528/2529，启动前清残留监听（复用 run_tests 的 free_cluster_ports）。
 6. **socket 同客户端**：两侧服务端被同一个 node 压测客户端压
-   （[tools/bench_socket_client.js](../tools/bench_socket_client.js)，4 连接 ×
+   （[tools/bench-socket-client.js](../tools/bench-socket-client.js)，4 连接 ×
    256 在途流水线），只有服务端框架不同。
 7. **每服务内存用专用节点稳态 RSS**：mem 阶段每档服务数各起一个干净节点，拉起
    N 个空闲 echo 服务并各发一次 RTT（强制惰性加载），等 `settle_ms`（默认 1000ms）
@@ -48,12 +48,12 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
 | socket | `sock_64/4096/65536` | TCP echo（字节原样回包）responses/s 与 MB/s |
 | mem | `mem_scale_<N>` | 每档 N 个空闲 echo 服务的专用节点稳态 RSS（N=0/100/500/1000/3000/5000/10000）——每服务内存 footprint 与斜率 |
 
-两侧脚本严格镜像：JS 侧 [test/service/bench_suite_main.js](../test/service/bench_suite_main.js)、
-[bench_cluster_a/b.js](../test/service/bench_cluster_a_main.js)、
-[bench_socket_main.js](../test/service/bench_socket_main.js)、
-[bench_mem_main.js](../test/service/bench_mem_main.js)；Lua 侧
-[test/bench_lua/](../test/bench_lua/)（`main.lua` / `cluster_main_a,b.lua` /
-`socket_echo.lua` / `mem_main.lua`，配置与 clustername 同目录）。
+两侧脚本严格镜像：JS 侧 [test/service/bench-suite-main.js](../test/service/bench-suite-main.js)、
+[bench_cluster_a/b.js](../test/service/bench-cluster-a-main.js)、
+[bench-socket-main.js](../test/service/bench-socket-main.js)、
+[bench-mem-main.js](../test/service/bench-mem-main.js)；Lua 侧
+[test/bench-lua/](../test/bench-lua/)（`main.lua` / `cluster_main_a,b.lua` /
+`socket-echo.lua` / `mem-main.lua`，配置与 clustername 同目录）。
 
 ## 基线数据
 
@@ -166,7 +166,7 @@ bench 脚本。运行方式：`make bench`（等价 `node tools/run_bench.js --p
   必须同机同时段 A/B 或用 lua 列归一化。
 - RSS 采样粒度 250ms（`ps` 轮询），且受 macOS 内存压缩影响轮次间波动大
   （见解读第 7 条）；内存归因用单用例专用节点工具链
-  （test/service/bench_trim_main.js、test/bench_lua/main_trim.lua +
+  （test/service/bench-trim-main.js、test/bench-lua/main-trim.lua +
   tools/rss_trim*.sh）。
 - 仅 macOS/arm64 实测；Linux（epoll 路径）未验证。
 - mem 阶段每服务稳态 RSS 同样受 macOS 内存压缩影响，绝对值轮次间波动，**每服务斜率

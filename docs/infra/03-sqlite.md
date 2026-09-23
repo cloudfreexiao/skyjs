@@ -1,12 +1,12 @@
 # 03 — SQLite 数据服务（`db`）
 
 依赖：02（可取消 RPC、二进制）。构建开关：`SQLITE=1`（见 13）。能力键：`features().sqlite`。
-涉及：`js/db.js`（客户端库）、`service/sqlite_service.js`（owner，注册名 `.sqlite`）、
+涉及：`js/db.js`（客户端库）、`service/sqlite-service.js`（owner，注册名 `.sqlite`）、
 `service-src/js-sqlite.c`（`skynetcore.sqlite` 原生绑定）。
 
 ## 3.1 架构：单 owner + 只读副本
 
-- 每个数据库文件由一个 owner service 独占（`skynet.newservice("snjs service/sqlite_service.js <db_path>")`）。
+- 每个数据库文件由一个 owner service 独占（`skynet.newservice("snjs service/sqlite-service.js <dbPath>")`）。
 - owner 内部：1 个写连接（串行，Skynet 单服务天然串行化）+ 可选 N 个只读连接（WAL 下并发读）。
 - 原生 `skynetcore.sqlite` 只在 owner 内同步调用（prepare/step/finalize）。其它服务
   一律通过 `db` 客户端库异步 `skynet.call` 到 owner，绝不直接持有原生句柄。
@@ -23,7 +23,7 @@ skynetcore.sqlite.prepare(handle, sql) -> stmt
 skynetcore.sqlite.bind(stmt, index, value)              // 类型见 §3.4
 skynetcore.sqlite.step(stmt) -> "row" | "done"
 skynetcore.sqlite.column(stmt, index) -> value
-skynetcore.sqlite.column_meta(stmt) -> [{name, type}]
+skynetcore.sqlite.columnMeta(stmt) -> [{name, type}]
 skynetcore.sqlite.reset(stmt) / finalize(stmt)
 skynetcore.sqlite.exec(handle, sql)                     // 无结果批处理
 skynetcore.sqlite.last_insert_rowid(handle) -> BigInt
@@ -33,12 +33,12 @@ skynetcore.sqlite.errcode(handle) -> {code, msg}
 
 ## 3.3 `db` 客户端库（stable）
 
-`globalThis.db`。所有方法返回 Promise，均接受可选末参 `{ signal, timeout_ms }`。
+`globalThis.db`。所有方法返回 Promise，均接受可选末参 `{ signal, timeoutMs }`。
 
 ```js
 db.open(path, opts?) -> Promise<Db>
-// opts = { mode?: "rw"|"ro"|"memory", wal?: true, busy_timeout_ms?: 10000,
-//          foreign_keys?: true, readers?: 2 }
+// opts = { mode?: "rw"|"ro"|"memory", wal?: true, busyTimeoutMs?: 10000,
+//          foreignKeys?: true, readers?: 2 }
 
 Db.query(sql, params?) -> Promise<Row[]>          // 读；params 数组或命名对象
 Db.get(sql, params?)   -> Promise<Row|null>       // 取首行
@@ -47,7 +47,7 @@ Db.batch(statements)   -> Promise<Array<Result>>  // 顺序执行多条（非事
 Db.transaction(fn)     -> Promise<T>              // 见 §3.5
 Db.exec(sql)           -> Promise<void>           // 多语句脚本（迁移/初始化）
 Db.migrate(dir, opts?) -> Promise<{ from, to, applied: string[] }>  // 见 §3.6
-Db.backup(dest_path)   -> Promise<void>           // 只读快照备份
+Db.backup(destPath)   -> Promise<void>           // 只读快照备份
 Db.close()             -> Promise<void>
 
 db.version -> string
@@ -68,7 +68,7 @@ db.version -> string
 
 - 超过 `Number.MAX_SAFE_INTEGER` 的 INTEGER 一律 `BigInt`（对齐 01-conventions §7）。
 - 对外 JSON 输出时由上层业务决定是否转字符串；`db` 层不做隐式截断。
-- JSON1 函数（`json_each` / `json_extract` / `json_group_array` 等）作为普通 SQL 支持，
+- JSON1 函数（`jsonEach` / `jsonExtract` / `jsonGroupArray` 等）作为普通 SQL 支持，
   无需特殊 API（Songloft 的 `labels` 查询依赖此项）。
 
 ## 3.5 事务契约（关键约束）
@@ -83,7 +83,7 @@ db.version -> string
 ```js
 Db.transaction(tx => {
   const id = tx.run("INSERT INTO t(a) VALUES (?)", [1]).last_insert_rowid;
-  tx.run("INSERT INTO u(t_id) VALUES (?)", [id]);
+  tx.run("INSERT INTO u(tId) VALUES (?)", [id]);
 });
 // tx.* 为同步接口（在 owner 内同步执行），无 await；跨表原子提交。
 ```
@@ -94,24 +94,24 @@ Db.transaction(tx => {
 ## 3.6 迁移 runner
 
 - `Db.migrate(dir)`：读取 `dir` 下形如 `NNNN_name.sql` 的迁移文件，按序号升序执行未应用项。
-- 维护 `schema_migrations(version TEXT PRIMARY KEY, applied_at)`。
+- 维护 `schemaMigrations(version TEXT PRIMARY KEY, appliedAt)`。
 - 每个迁移在独立事务内执行；失败即回滚并中止，返回已应用列表与错误。
-- 支持 `opts = { target?: version, dry_run?: boolean }`。
+- 支持 `opts = { target?: version, dryRun?: boolean }`。
 - 兼容 Songloft 现有 38 个迁移的“每文件一版本、事务化、失败回滚”语义（goose 风格）。
 
 ## 3.7 错误码
 
-- `ERR_BUSY`（SQLITE_BUSY/LOCKED，busy_timeout 用尽）、`ERR_DB_CONSTRAINT`
+- `ERR_BUSY`（SQLITE_BUSY/LOCKED，busyTimeout 用尽）、`ERR_DB_CONSTRAINT`
   （约束冲突，归并到 `ERR_PROTOCOL`）、`ERR_NOT_FOUND`（迁移目录/文件缺失）、
   `ERR_CANCELLED`/`ERR_TIMEOUT`、`ERR_IO`。
-- `err.detail` 带 `{ sqlite_code, sql?（脱敏）}`。
+- `err.detail` 带 `{ sqliteCode, sql?（脱敏）}`。
 
 ## 3.8 资源与安全
 
 - 每个 `Db` 句柄的 stmt 在使用后必须 finalize；owner 在请求结束/取消/异常路径统一回收，
   杜绝 stmt/连接泄漏。
 - 参数化查询强制：库不提供字符串拼接执行入口以外的“信任 SQL”后门；`exec` 仅供迁移/初始化。
-- 取消：长查询在 `step` 循环的检查点响应 `signal`，尽力中止（`sqlite3_interrupt` 等价）。
+- 取消：长查询在 `step` 循环的检查点响应 `signal`，尽力中止（`sqlite3Interrupt` 等价）。
 
 ## 3.9 验收
 

@@ -15,7 +15,7 @@
 #include <openssl/bio.h>
 #include <openssl/x509.h>
 #include "skynet.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 
 /* ================================================================
  * Opaque types wrapped in QuickJS objects with release callbacks
@@ -469,10 +469,10 @@ void register_tls_bridge(JSContext *ctx, JSValue global) {
 	JSValue tls = JS_NewObject(ctx);
 
 	JS_SetPropertyStr(ctx, tls, "init", JS_NewCFunction(ctx, js_tls_init, "init", 0));
-	JS_SetPropertyStr(ctx, tls, "ctx_new", JS_NewCFunction(ctx, js_tls_ctx_new, "ctx_new", 1));
-	JS_SetPropertyStr(ctx, tls, "ctx_set_cert", JS_NewCFunction(ctx, js_tls_ctx_set_cert, "ctx_set_cert", 3));
-	JS_SetPropertyStr(ctx, tls, "ctx_set_verify", JS_NewCFunction(ctx, js_tls_ctx_set_verify, "ctx_set_verify", 2));
-	JS_SetPropertyStr(ctx, tls, "ctx_free", JS_NewCFunction(ctx, js_tls_ctx_free, "ctx_free", 1));
+	JS_SetPropertyStr(ctx, tls, "ctxNew", JS_NewCFunction(ctx, js_tls_ctx_new, "ctxNew", 1));
+	JS_SetPropertyStr(ctx, tls, "ctxSetCert", JS_NewCFunction(ctx, js_tls_ctx_set_cert, "ctxSetCert", 3));
+	JS_SetPropertyStr(ctx, tls, "ctxSetVerify", JS_NewCFunction(ctx, js_tls_ctx_set_verify, "ctxSetVerify", 2));
+	JS_SetPropertyStr(ctx, tls, "ctxFree", JS_NewCFunction(ctx, js_tls_ctx_free, "ctxFree", 1));
 	JS_SetPropertyStr(ctx, tls, "newtls", JS_NewCFunction(ctx, js_tls_newtls, "newtls", 3));
 	JS_SetPropertyStr(ctx, tls, "handshake", JS_NewCFunction(ctx, js_tls_handshake, "handshake", 2));
 	JS_SetPropertyStr(ctx, tls, "finished", JS_NewCFunction(ctx, js_tls_finished, "finished", 1));

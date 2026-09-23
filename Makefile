@@ -118,7 +118,7 @@ SKYNET_SRC := skynet_handle.c skynet_module.c skynet_mq.c skynet_server.c \
   skynet_socket.c socket_server.c mem_info.c malloc_hook.c skynet_daemon.c skynet_log.c
 
 SKYNET_OBJ := $(addprefix build/skynet_,$(SKYNET_SRC:.c=.o))
-PLATFORM_OBJ := build/env.o build/main.o build/lua_stub.o
+PLATFORM_OBJ := build/env.o build/main.o build/lua-stub.o
 
 # quickjs-ng core (linked into the main skyjs executable; .so modules resolve symbols at runtime)
 QJS_SRC := 3rd/quickjs/quickjs.c 3rd/quickjs/libregexp.c 3rd/quickjs/libunicode.c 3rd/quickjs/dtoa.c
@@ -127,7 +127,7 @@ QJS_OBJ := $(addprefix build/qjs_,$(notdir $(QJS_SRC:.c=.o)))
 TARGET := skyjs$(EXE_SUFFIX)
 
 # STATIC=1: fold the production cservice modules into the skyjs executable
-# instead of loading them as .so at runtime (see platform/builtin_dl.c).  The
+# instead of loading them as .so at runtime (see platform/builtin-dl.c).  The
 # dlopen fallback stays intact, so test services and third-party plugins still
 # load dynamically.  Not supported on MinGW (no dlopen / interpose).
 BUILTIN_OBJ :=
@@ -135,7 +135,7 @@ STATIC_LDFLAGS :=
 ifeq ($(STATIC),1)
   BUILTIN_OBJ := build/snjs.o build/seri.o build/netpack.o build/crypto.o \
     build/io.o $(TLS_OBJ) build/rt_bc.o build/svc_logger.o \
-    build/svc_skyclusterd.o build/builtin_dl.o
+    build/svc_skyclusterd.o build/builtin-dl.o
   ifeq ($(PLAT),macosx)
     STATIC_LDFLAGS := -Wl,-export_dynamic
   else ifeq ($(PLAT),linux)
@@ -200,7 +200,7 @@ build/io.o: service-src/js-io.c | build
 
 # STATIC-only object builds of logger + skyclusterd (same flags as their .so
 # rules; distinct names avoid the build/skynet_%.o pattern that targets
-# skynet-src/).  builtin_dl.o uses the generic platform/%.o rule.
+# skynet-src/).  builtin-dl.o uses the generic platform/%.o rule.
 # logger has no MODAPI visibility markers (unlike snjs/skyclusterd); its .so
 # rule relies on default visibility, so we must NOT hide symbols here or the
 # logger_* entry points won't reach skyjs's -rdynamic export table.
@@ -256,12 +256,12 @@ cservice/snjs.so: build/snjs.o build/seri.o build/netpack.o build/crypto.o build
 # the interpreter entry points lua.c/luac.c and the all-in-one onelua.c.
 LUA_SRC := $(filter-out 3rd/skynet/3rd/lua/lua.c 3rd/skynet/3rd/lua/luac.c 3rd/skynet/3rd/lua/onelua.c,$(wildcard 3rd/skynet/3rd/lua/*.c))
 
-test/seri_tool: test/seri_tool.c 3rd/skynet/lualib-src/lua-seri.c $(LUA_SRC)
-	$(CC) $(CFLAGS) -I3rd/skynet/skynet-src -I3rd/skynet/lualib-src -I3rd/skynet/3rd/lua -o $@ test/seri_tool.c $(LUA_SRC) -lm
+test/seri-tool: test/seri-tool.c 3rd/skynet/lualib-src/lua-seri.c $(LUA_SRC)
+	$(CC) $(CFLAGS) -I3rd/skynet/skynet-src -I3rd/skynet/lualib-src -I3rd/skynet/3rd/lua -o $@ test/seri-tool.c $(LUA_SRC) -lm
 
 ifeq ($(PLAT),mingw)
 COMPAT_OBJ := build/compat.o
-$(COMPAT_OBJ): platform/mingw_compat.c | build
+$(COMPAT_OBJ): platform/mingw-compat.c | build
 	$(CC) $(CFLAGS) -c $< -o $@
 else
 COMPAT_OBJ :=
@@ -287,23 +287,20 @@ cservice/skyclusterd.so: service-src/skyclusterd.c $(IMPORT_LIB) | cservice
 	$(CC) $(CFLAGS) $(SHARED) -fvisibility=hidden $< -o $@ -I$(SKYNET_INC) -Iplatform $(IMPORT_LIB)
 
 clean:
-	rm -rf build skyjs skyjs.exe test/seri_tool test/seri_tool.dSYM \
+	rm -rf build skyjs skyjs.exe test/seri-tool test/seri-tool.dSYM \
 		cservice/*.so cservice/*.dSYM \
 		test/cservice/*.so test/cservice/*.dSYM
 
-lint:
-	node tools/lint.js js test/service tools
-
 # acceptance suite: builds everything first, then drives all scenarios
-# (see tools/run_tests.js header for the pass/fail model); seri_tool is a
+# (see tools/run-tests.js header for the pass/fail model); seri_tool is a
 # separate target because `all` does not build it
-test: all test/seri_tool
-	node tools/run_tests.js
+test: all test/seri-tool
+	node tools/run-tests.js
 
 # one-command interop acceptance against the stock Lua skynet node:
 # builds the 3rd/skynet submodule, boots both nodes, asserts both directions
 interop: all
-	node tools/run_interop.js
+	node tools/run-interop.js
 
 # benchmark suite: skyjs vs stock skynet, three phases (core + cluster +
 # socket, methodology + baseline in docs/bench.md); override with e.g.
@@ -311,13 +308,13 @@ interop: all
 PHASE ?= all
 REPEAT ?= 3
 bench: all
-	node tools/run_bench.js --phase $(PHASE) --repeat $(REPEAT)
+	node tools/run-bench.js --phase $(PHASE) --repeat $(REPEAT)
 
-# long-run soak with memstat/RSS reconciliation (tools/run_longrun.js);
+# long-run soak with memstat/RSS reconciliation (tools/run-longrun.js);
 # default 30 minutes, override with e.g. make longrun DURATION=5
 DURATION ?= 30
 longrun: all
-	node tools/run_longrun.js --minutes $(DURATION)
+	node tools/run-longrun.js --minutes $(DURATION)
 
 # self-signed test certs for TLS acceptance (valid 10 years, localhost + 127.0.0.1)
 test/certs/server.pem:
@@ -330,4 +327,4 @@ test/certs/server.pem:
 
 test-certs: test/certs/server.pem
 
-.PHONY: all clean lint test interop bench longrun test-certs
+.PHONY: all clean test interop bench longrun test-certs

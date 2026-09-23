@@ -37,7 +37,7 @@
   `service-src/js-netpack.c`，对齐原版 lua-netpack 的 2 字节大端长度帧、per-fd
   分片重组与 ring queue；socket DATA 由 C 层接管，pop/clear/服务销毁完整释放。
   socket.js 默认文本解码，`{binary:true}` 按连接交付 ArrayBuffer；新增
-  `skynet.redirect`、PTYPE_CLIENT 与 `js/gateserver.js`，由 `test/config_gate.json`
+  `skynet.redirect`、PTYPE_CLIENT 与 `js/gateserver.js`，由 `test/config-gate.json`
   覆盖 gate→watchdog→agent 的二进制、粘包、拆包回显。
 
 ## 已知限制

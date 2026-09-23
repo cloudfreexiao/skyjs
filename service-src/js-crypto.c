@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "skynet.h"
-#include "snjs_internal.h"
+#include "snjs-internal.h"
 #ifdef __linux__
 #include <sys/random.h>
 #endif
@@ -869,24 +869,24 @@ void register_crypto_bridge(JSContext *ctx, JSValue global) {
 	JS_SetPropertyStr(ctx,crypt,"sha1",JS_NewCFunction(ctx,js_crypt_sha1,"sha1",1));
 	JS_SetPropertyStr(ctx,crypt,"sha256",JS_NewCFunction(ctx,js_crypt_sha256,"sha256",1));
 	JS_SetPropertyStr(ctx,crypt,"sha512",JS_NewCFunction(ctx,js_crypt_sha512,"sha512",1));
-	JS_SetPropertyStr(ctx,crypt,"hmac_sha1",JS_NewCFunction(ctx,js_crypt_hmac_sha1,"hmac_sha1",2));
-	JS_SetPropertyStr(ctx,crypt,"hmac_sha256",JS_NewCFunction(ctx,js_crypt_hmac_sha256,"hmac_sha256",2));
-	JS_SetPropertyStr(ctx,crypt,"hmac_sha512",JS_NewCFunction(ctx,js_crypt_hmac_sha512,"hmac_sha512",2));
-	JS_SetPropertyStr(ctx,crypt,"base64_encode",JS_NewCFunction(ctx,js_crypt_base64_encode,"base64_encode",1));
-	JS_SetPropertyStr(ctx,crypt,"base64_decode",JS_NewCFunction(ctx,js_crypt_base64_decode,"base64_decode",1));
-	JS_SetPropertyStr(ctx,crypt,"hex_encode",JS_NewCFunction(ctx,js_crypt_hex_encode,"hex_encode",1));
-	JS_SetPropertyStr(ctx,crypt,"hex_decode",JS_NewCFunction(ctx,js_crypt_hex_decode,"hex_decode",1));
-	JS_SetPropertyStr(ctx,crypt,"xor_str",JS_NewCFunction(ctx,js_crypt_xor_str,"xor_str",2));
-	JS_SetPropertyStr(ctx,crypt,"random_bytes",JS_NewCFunction(ctx,js_crypt_random_bytes,"random_bytes",1));
+	JS_SetPropertyStr(ctx,crypt,"hmacSha1",JS_NewCFunction(ctx,js_crypt_hmac_sha1,"hmacSha1",2));
+	JS_SetPropertyStr(ctx,crypt,"hmacSha256",JS_NewCFunction(ctx,js_crypt_hmac_sha256,"hmacSha256",2));
+	JS_SetPropertyStr(ctx,crypt,"hmacSha512",JS_NewCFunction(ctx,js_crypt_hmac_sha512,"hmacSha512",2));
+	JS_SetPropertyStr(ctx,crypt,"base64Encode",JS_NewCFunction(ctx,js_crypt_base64_encode,"base64Encode",1));
+	JS_SetPropertyStr(ctx,crypt,"base64Decode",JS_NewCFunction(ctx,js_crypt_base64_decode,"base64Decode",1));
+	JS_SetPropertyStr(ctx,crypt,"hexEncode",JS_NewCFunction(ctx,js_crypt_hex_encode,"hexEncode",1));
+	JS_SetPropertyStr(ctx,crypt,"hexDecode",JS_NewCFunction(ctx,js_crypt_hex_decode,"hexDecode",1));
+	JS_SetPropertyStr(ctx,crypt,"xorStr",JS_NewCFunction(ctx,js_crypt_xor_str,"xorStr",2));
+	JS_SetPropertyStr(ctx,crypt,"randomBytes",JS_NewCFunction(ctx,js_crypt_random_bytes,"randomBytes",1));
 	JS_SetPropertyStr(ctx,crypt,"randomkey",JS_NewCFunction(ctx,js_crypt_randomkey,"randomkey",0));
 	JS_SetPropertyStr(ctx,crypt,"hashkey",JS_NewCFunction(ctx,js_crypt_hashkey,"hashkey",1));
-	JS_SetPropertyStr(ctx,crypt,"des_encode",JS_NewCFunction(ctx,js_crypt_des_encode,"des_encode",3));
-	JS_SetPropertyStr(ctx,crypt,"des_decode",JS_NewCFunction(ctx,js_crypt_des_decode,"des_decode",3));
+	JS_SetPropertyStr(ctx,crypt,"desEncode",JS_NewCFunction(ctx,js_crypt_des_encode,"desEncode",3));
+	JS_SetPropertyStr(ctx,crypt,"desDecode",JS_NewCFunction(ctx,js_crypt_des_decode,"desDecode",3));
 	JS_SetPropertyStr(ctx,crypt,"hmac64",JS_NewCFunction(ctx,js_crypt_hmac64,"hmac64",2));
-	JS_SetPropertyStr(ctx,crypt,"hmac64_md5",JS_NewCFunction(ctx,js_crypt_hmac64_md5,"hmac64_md5",2));
-	JS_SetPropertyStr(ctx,crypt,"hmac_hash",JS_NewCFunction(ctx,js_crypt_hmac_hash,"hmac_hash",2));
-	JS_SetPropertyStr(ctx,crypt,"dh_exchange",JS_NewCFunction(ctx,js_crypt_dh_exchange,"dh_exchange",1));
-	JS_SetPropertyStr(ctx,crypt,"dh_secret",JS_NewCFunction(ctx,js_crypt_dh_secret,"dh_secret",2));
+	JS_SetPropertyStr(ctx,crypt,"hmac64Md5",JS_NewCFunction(ctx,js_crypt_hmac64_md5,"hmac64Md5",2));
+	JS_SetPropertyStr(ctx,crypt,"hmacHash",JS_NewCFunction(ctx,js_crypt_hmac_hash,"hmacHash",2));
+	JS_SetPropertyStr(ctx,crypt,"dhExchange",JS_NewCFunction(ctx,js_crypt_dh_exchange,"dhExchange",1));
+	JS_SetPropertyStr(ctx,crypt,"dhSecret",JS_NewCFunction(ctx,js_crypt_dh_secret,"dhSecret",2));
 #ifdef USE_OPENSSL
 	register_openssl_crypto(ctx, crypt);
 #endif
@@ -1058,8 +1058,8 @@ static JSValue js_crypt_ed25519_keypair(JSContext *ctx, JSValueConst tv, int arg
 	EVP_PKEY_free(pkey);
 
 	JSValue result = JS_NewObject(ctx);
-	JS_SetPropertyStr(ctx, result, "public", JS_NewArrayBufferCopy(ctx, pub, 32));
-	JS_SetPropertyStr(ctx, result, "secret", JS_NewArrayBufferCopy(ctx, sec, 32));
+	JS_SetPropertyStr(ctx, result, "publicKey", JS_NewArrayBufferCopy(ctx, pub, 32));
+	JS_SetPropertyStr(ctx, result, "secretKey", JS_NewArrayBufferCopy(ctx, sec, 32));
 	return result;
 }
 
@@ -1142,8 +1142,8 @@ static JSValue js_crypt_x25519_keypair(JSContext *ctx, JSValueConst tv, int argc
 	EVP_PKEY_free(pkey);
 
 	JSValue result = JS_NewObject(ctx);
-	JS_SetPropertyStr(ctx, result, "public", JS_NewArrayBufferCopy(ctx, pub, 32));
-	JS_SetPropertyStr(ctx, result, "secret", JS_NewArrayBufferCopy(ctx, sec, 32));
+	JS_SetPropertyStr(ctx, result, "publicKey", JS_NewArrayBufferCopy(ctx, pub, 32));
+	JS_SetPropertyStr(ctx, result, "secretKey", JS_NewArrayBufferCopy(ctx, sec, 32));
 	return result;
 }
 
@@ -1184,12 +1184,12 @@ static JSValue js_crypt_x25519_shared(JSContext *ctx, JSValueConst tv, int argc,
 }
 
 static void register_openssl_crypto(JSContext *ctx, JSValue crypt) {
-	JS_SetPropertyStr(ctx, crypt, "aes_gcm_encrypt", JS_NewCFunction(ctx, js_crypt_aes_gcm_encrypt, "aes_gcm_encrypt", 4));
-	JS_SetPropertyStr(ctx, crypt, "aes_gcm_decrypt", JS_NewCFunction(ctx, js_crypt_aes_gcm_decrypt, "aes_gcm_decrypt", 5));
-	JS_SetPropertyStr(ctx, crypt, "ed25519_keypair", JS_NewCFunction(ctx, js_crypt_ed25519_keypair, "ed25519_keypair", 0));
-	JS_SetPropertyStr(ctx, crypt, "ed25519_sign", JS_NewCFunction(ctx, js_crypt_ed25519_sign, "ed25519_sign", 2));
-	JS_SetPropertyStr(ctx, crypt, "ed25519_verify", JS_NewCFunction(ctx, js_crypt_ed25519_verify, "ed25519_verify", 3));
-	JS_SetPropertyStr(ctx, crypt, "x25519_keypair", JS_NewCFunction(ctx, js_crypt_x25519_keypair, "x25519_keypair", 0));
-	JS_SetPropertyStr(ctx, crypt, "x25519_shared", JS_NewCFunction(ctx, js_crypt_x25519_shared, "x25519_shared", 2));
+	JS_SetPropertyStr(ctx, crypt, "aesGcmEncrypt", JS_NewCFunction(ctx, js_crypt_aes_gcm_encrypt, "aesGcmEncrypt", 4));
+	JS_SetPropertyStr(ctx, crypt, "aesGcmDecrypt", JS_NewCFunction(ctx, js_crypt_aes_gcm_decrypt, "aesGcmDecrypt", 5));
+	JS_SetPropertyStr(ctx, crypt, "ed25519Keypair", JS_NewCFunction(ctx, js_crypt_ed25519_keypair, "ed25519Keypair", 0));
+	JS_SetPropertyStr(ctx, crypt, "ed25519Sign", JS_NewCFunction(ctx, js_crypt_ed25519_sign, "ed25519Sign", 2));
+	JS_SetPropertyStr(ctx, crypt, "ed25519Verify", JS_NewCFunction(ctx, js_crypt_ed25519_verify, "ed25519Verify", 3));
+	JS_SetPropertyStr(ctx, crypt, "x25519Keypair", JS_NewCFunction(ctx, js_crypt_x25519_keypair, "x25519Keypair", 0));
+	JS_SetPropertyStr(ctx, crypt, "x25519Shared", JS_NewCFunction(ctx, js_crypt_x25519_shared, "x25519Shared", 2));
 }
 #endif

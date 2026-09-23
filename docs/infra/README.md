@@ -22,7 +22,7 @@ owner service 命名、接口签名、错误码与能力清单。**当前批次�
    - [06-subprocess.md](06-subprocess.md) — `subprocess`。
    - [07-crypto.md](07-crypto.md) — `crypt` 扩展。
    - [08-media-tag.md](08-media-tag.md) — `media` + `tag`。
-   - [09-plugin-host.md](09-plugin-host.md) — `snplugin` loader + `plugin_host`。
+   - [09-plugin-host.md](09-plugin-host.md) — `snplugin` loader + `pluginHost`。
    - [10-config-log-metrics.md](10-config-log-metrics.md) — `config` + `log` + `metrics`。
    - [11-testing.md](11-testing.md) — `testing`。
    - [12-mobile.md](12-mobile.md) — 移动端可嵌入 ABI。
@@ -36,20 +36,20 @@ owner service 命名、接口签名、错误码与能力清单。**当前批次�
 | 层 | 命名 | 职责 |
 |---|---|---|
 | C 注入层 | `skynetcore.<ns>` | snjs 运行时内的原生绑定，JS 可直接调用（同步、非阻塞原语） |
-| owner service 层 | `service/<cap>_service.js`，注册名 `.<cap>` | 独占持有原生资源，串行化访问，对外收发消息 |
+| owner service 层 | `service/<cap>-service.js`，注册名 `.<cap>` | 独占持有原生资源，串行化访问，对外收发消息 |
 | 客户端库层 | `js/<lib>.js` → `globalThis.<lib>` | Promise API，`skynet.call` 到 owner service，供业务使用 |
 
 ## 命名总表（速查，规范定义在 01-conventions.md）
 
 客户端库：`db / stream / webapp / fs / archive / subprocess / media / tag /
-config / log / metrics / testing / plugin_host`。
+config / log / metrics / testing / pluginHost`。
 
 现有库（保留不改名）：`skynet / socket / crypt / sockethelper / cluster /
-gateserver / httpd / httpc / http_internal / websocket / io / console`。
+gateserver / httpd / httpc / httpInternal / websocket / io / console`。
 
 ## 交付约束
 
-- 本批只产出本目录下 16 份 Markdown（README + 00~15）。
+- 本批只产出本目录下 17 份 Markdown（README + 00~15）。
 - 不新增或修改任何 `.c / .cc / .js / Makefile` 实现文件。
 - 命名总表在 [01-conventions.md](01-conventions.md) 唯一定义，其它文档只引用，不重复定义。
 - 所有库按“通用能力”设计，接口层不得出现 Songloft 业务名词（songs/playlist 等仅可作为
