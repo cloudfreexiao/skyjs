@@ -26,8 +26,9 @@
 
 ## 14.3 安全门禁
 
-- 路径穿越（fs/archive）、SSRF（httpc/plugin fetch 私网拦截）、ZIP bomb、超大 multipart、
-  命令注入（subprocess）、插件逃逸（无 `skynetcore`/`io`/`socket`）、JWT 伪造、异常媒体文件。
+- 路径穿越（Node `fs`/`skyjs/fsx`/`skyjs/archive`）、SSRF（`fetch`/HTTP 内核/插件
+  fetch 私网拦截）、ZIP bomb、超大 multipart、命令注入（`skyjs/subprocess`）、
+  插件逃逸（无 `skynetcore`/`js/internal`/任意 Node 内置模块）、JWT 伪造、异常媒体文件。
 - 每项有定向用例；全部通过方可发布。
 
 ## 14.4 决策门（承接 15）
@@ -47,8 +48,23 @@
 任一平台失败不降低协议契约；确实不适用的能力只通过 `features()` 标注，不静默缺失。
 `MEDIA_GPL` 构建单独通道，默认发布走 LGPL 配置。
 
-## 14.6 验收
+引擎产物与 `@skyjs` 包产物**分开发布、分开版本号**（node-compatibility §16.4.1）：
+引擎产物只有可执行文件/`snjs.so` 与内建模块清单；`@skyjs/<name>` 包按 npm 包发布，
+原生部分随包（§16.4.3）。两者靠 `peerDependencies` 版本区间与 ABI 号对接，不做
+“包编进引擎产物”的组合，也不为某个业务单独裁剪引擎。
+
+## 14.6 Node 兼容门禁
+
+- [../node-compatibility.md](../node-compatibility.md) §12.1 的每条兼容差异必须有
+  `test/node-compat/` 用例覆盖；未覆盖的差异不得宣称对应 NC 批次完成。
+- 差异表新增或修改必须与实现同批提交，不允许先改行为后补文档。
+- 归层变更（某入口在引擎内建与 `@skyjs` 包之间移动）必须同批更新
+  node-compatibility §16.4.1 与 01-conventions §3 的能力总表，且 `features()` 键不变。
+
+## 14.7 验收
 
 - 差分测试在 CI 常态运行，关键契约零回归。
 - 性能/安全门禁全绿；决策门 1/2 有明确通过记录。
 - 发布产物按平台顺序产出，能力清单与 `features()` 一致。
+- 引擎产物不含任何 `packages/` 内容；删掉 `packages/` 后引擎仍能构建启动并跑通
+  自验证用例（node-compatibility §16.4.1 收口标准）。

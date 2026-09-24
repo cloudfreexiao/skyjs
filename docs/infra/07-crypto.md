@@ -1,9 +1,18 @@
-# 07 — 密码学扩展（`crypt`）
+# 07 — 密码学与压缩（Node `crypto`/`zlib` + `skyjs/crypt`）
 
 依赖：无（同步原语）。构建开关：部分算法需 `TLS=openssl`。能力键：`features().cryptExt`。
-涉及：扩展 `js/crypt.js`（`globalThis.crypt`）、`service-src/js-crypto.c`（`skynetcore.crypt`）。
+归层：**引擎内建**（node-compatibility §16.4.1、ND-33）。`crypt` 与层 1 的
+`crypto`/`zlib` 共用 `internal/crypt-core.js` 与 `js-crypto.c`。
+涉及：`js/internal/crypt-core.js`（共享内核，抽自 `js/crypt.js`）、
+`js/builtins/skyjs/crypt.js`（`require('skyjs/crypt')`）、`js/builtins/crypto.js`
+与 `js/builtins/zlib.js`（Node facade）、`service-src/js-crypto.c`
+（`skynetcore.crypt`）。
 
-原则：**现有接口全部保留不变**（见 `js/crypt.js`）：`sha1/sha256/sha512`、
+`skynetcore.crypt` 是同步原语，无 owner service；引擎内建实现不依赖
+`node_modules`，保证默认构建自洽。
+
+原则：**现有接口语义保留不变，但形态改为 `require` 模块**（原 `globalThis.crypt`）：
+`sha1/sha256/sha512`、
 `hmacSha1/hmacSha256/hmacSha512`、`base64_*`、`hex_*`、`aes_gcm_*`、`ed25519_*`、
 `x25519_*`、`randomBytes`、`xorStr`、`randomkey/hashkey/des_*/hmac64*/dh_*`。
 本批仅**新增**插件生态所需算法，命名沿用 lowerCamelCase，输入统一走现有 `toAb` 强制。
@@ -44,7 +53,7 @@ rawDeflate`。zlib 系用系统 zlib 或 quickjs 已链的等价实现；AES/RSA
 
 对齐 Songloft 插件运行时（`internal/jsruntime`）的原生桥接，等价能力一览：
 
-| 插件侧（现有 Go 宿主） | SkyJS `crypt` |
+| 插件侧（现有 Go 宿主） | SkyJS `skyjs/crypt` |
 |---|---|
 | `__go_crypto_md5` | `crypt.md5Hex` |
 | `__go_crypto_sha1/sha256` | 现有 `crypt.sha1/sha256`（+ hex） |
@@ -61,10 +70,18 @@ rawDeflate`。zlib 系用系统 zlib 或 quickjs 已链的等价实现；AES/RSA
 ## 7.3 编码便捷（可选）
 
 ```js
-crypt.hex(data) / crypt.unhex(str)             // 现有 hexEncode/hexDecode 的短别名（保留旧名）
-crypt.b64(data) / crypt.unb64(str)             // 现有 base64_* 的短别名（保留旧名）
+crypt.hex(data) / crypt.unhex(str)             // 现有 hexEncode/hexDecode 的短别名
+crypt.b64(data) / crypt.unb64(str)             // 现有 base64_* 的短别名
 ```
-别名为可选糖，旧名不废弃。
+别名为可选糖；原 `hexEncode`/`base64_*` 长名保留在 `skyjs/crypt` 内，但不提升为全局。
+
+### Node `crypto` / `zlib` facade
+
+`require('crypto')` 与 `require('zlib')` 在本内核之上做 Node 语义适配（`createHash`、
+`createHmac`、`randomBytes`、`randomUUID`、`timingSafeEqual`、`gzip`/`gunzip`/
+`deflateRaw` 等常用子集）。首版只承诺常用子集，不承诺完整 OpenSSL 绑定或 native
+addon 兼容；不支持的能力抛 `ERR_UNSUPPORTED_PLATFORM`。`skyjs/crypt` 保留 SkyJS 自有
+命名与返回类型（如 `ArrayBuffer`），两者共享 `internal/crypt-core`。
 
 ## 7.4 错误码
 

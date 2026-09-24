@@ -1,9 +1,21 @@
 # 10 — 配置（`config`）、日志（`log`）、指标（`metrics`）
 
 依赖：02、03（config 持久化用 db）。能力键：常驻可用。
-涉及：新增 `js/config.js`、`js/log.js`、`js/metrics.js`；
-owner `service/config-service.js`(`.config`)、`service/metrics-service.js`(`.metrics`)；
-日志复用 `skynetcore.error`（skynet 日志通道），可选 `.log-sink` 落盘 service。
+归层（node-compatibility §16.4.1、ND-33）：
+
+- **引擎内建**：`skyjs/log` → `js/builtins/skyjs/log.js`，直接桥
+  `skynetcore.runtime.error`（skynet 日志通道）；无原生依赖、体量极小，且被引擎
+  运维契约直接引用。
+- **`@skyjs` 包**：`skyjs/config` → `packages/config/`（`lib/client.js`、`lib/schema.js`、
+  `lib/subscribe.js`，可选 `service/config-service.js`(`.config`)）；
+  `skyjs/metrics` → `packages/metrics/`（`lib/client.js`、`lib/collector.js`、
+  `lib/exporter.js`，可选 `service/metrics-service.js`(`.metrics`)）。
+
+`config`/`metrics` 落包的直接原因：两者都经公开面（`skyjs/db`/`skyjs/log`）即可
+实现，删掉 `packages/` 后引擎照常构建启动（§16.4.1 收口标准）。包内不得
+`require('js/internal/*')`、不得触 `skynetcore.*`。
+
+`.log-sink` 落盘 service 由使用方（业务或 `@skyjs` 包）自行提供，不进引擎。
 
 ## 10.1 `config` 库（stable）
 
@@ -30,7 +42,7 @@ config.version -> string
 
 ## 10.2 `log` 库（stable）
 
-结构化日志，底层仍走 skynet 日志通道（`skynetcore.error`，保持与 `console.*` 统一）。
+结构化日志，底层仍走 skynet 日志通道（`skynetcore.runtime.error`，保持与 `console.*` 统一）。
 
 ```js
 log.trace|debug|info|warn|error(msg, fields?)      // fields 为结构化键值对象

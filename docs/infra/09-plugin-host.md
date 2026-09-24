@@ -2,9 +2,16 @@
 
 依赖：02、03（db）、04（webapp）、05（fs/archive）、06（subprocess，桌面）、07（crypt）、
 08（media/tag）。能力键：`features().pluginSandbox`。
+归层：**引擎内建**（node-compatibility §16.4.1、ND-33）。插件宿主是安全边界，必须与
+`snplugin` loader 同版本发行，不能由用户替换，因此不走 `@skyjs` 包。
 涉及：新增 `snplugin` 受限 loader（复用 `service-src/snjs.c` 的 VM 生命周期，但**独立
-注册面**）、`js/plugin-host.js`（`globalThis.pluginHost`，仅插件管理服务内可见）、
+注册面**）、`js/builtins/skyjs/pluginHost.js`（`require('skyjs/pluginHost')`，
+仅插件管理服务内可见）、
 `service/plugin-manager.js`（owner，注册名 `.pluginManager`）。
+
+注意上表依赖里的 03/04/08 是 `@skyjs` 包（§16.4.1）：插件宿主是**消费方**，经公开
+`skyjs/*` 入口调用它们，不把包代码编进引擎。包未安装时对应能力在 `features()` 中
+标缺失，插件相关调用抛 `ERR_MODULE_NOT_FOUND`（§3.3）。
 
 ## 9.1 安全模型（核心）
 
@@ -28,7 +35,7 @@ inter-plugin / command / jsenv / fs / fs:music / net / net:insecure-tls / websoc
 
 - host bridge 每个 action 映射到所需权限（前缀匹配），未声明即拒绝（`ERR_PERMISSION`）。
 - `command`（子进程）在移动端因平台不支持返回 `ERR_UNSUPPORTED_PLATFORM`（见 06）。
-- `net:insecure-tls` 仅在声明后放行 `httpc` 的 `insecureTls`（见 04）。
+- `net:insecure-tls` 仅在声明后放行 HTTP 内核的 `insecureTls`（见 04）。
 
 ## 9.3 `pluginHost` bridge 面（stable，仅插件可见）
 
@@ -73,10 +80,12 @@ zlib.{inflate,deflate,rawInflate}
 
 - 这些 camelCase 名是**对外兼容契约**；SkyJS 内部实现（`pluginHost` 模块自身、host
   services、各 owner）遵循本规范 camelCase，无需名称映射层（风格已一致）。
-- 各 bridge 内部落到前述通用库：`storage`→`fs`、`persistentStorage`→`db`、
-  `command`→`subprocess`、`fetch`→`httpc`、`crypto`/`zlib`→`crypt`。
-- 禁止透出：插件 VM 内 `typeof skynetcore === "undefined"`，无 `io`/`socket`/`db`/`fs`/
-  `subprocess`/`media` 等底层库。
+- 各 bridge 内部落到前述通用模块：`storage`→Node `fs`/`skyjs/fsx`、
+  `persistentStorage`→`skyjs/db`、`command`→`skyjs/subprocess`、
+  `fetch`→`internal/http-core`（`builtins/fetch`）、`crypto`/`zlib`→
+  `internal/crypt-core`（`skyjs/crypt`）。
+- 禁止透出：插件 VM 内 `typeof skynetcore === "undefined"`，无 `js/internal/*`、
+  `skynetcore.*`，也无 `require` 任意加载 Node 内置模块的通道；只注入上表白名单。
 
 ## 9.4 `pluginManager`（owner，注册名 `.pluginManager`）
 
@@ -93,7 +102,7 @@ pluginManager.list() -> Promise<PluginInfo[]>
 ```
 
 - **热更新不依赖 inject**：`reload` 用“新旧 service 并存 + 原子切路由”实现（见 00 非目标）。
-- 动态路由：插件注册的 HTTP/WebSocket 路由挂到 `webapp`，`reload` 时原子替换 handler。
+- 动态路由：插件注册的 HTTP/WebSocket 路由挂到 `skyjs/webapp`，`reload` 时原子替换 handler。
 - 健康检查：周期 ping 插件 `onQueryBusy`/健康端点；error 态自愈与空闲驱逐策略可配置。
 - 安装/校验：`archive` 限额解压 + manifest hash 校验；`.jsc` 旧字节码不复用（重新编译）。
 
@@ -118,7 +127,7 @@ crypto / zlib / websocket`。以下当前 manifest 未用，作为 SDK 完整性
 
 ## 9.8 验收（对拍现有插件，源码零改动）
 
-- 插件 VM 内 `skynetcore/io/socket/db` 不可见；越权路径、SSRF 私网请求、未授权 command
+- 插件 VM 内 `skynetcore`/`js/internal`/任意 Node 内置模块不可见；越权路径、SSRF 私网请求、未授权 command
   全部被拒。
 - Miot（storage/songs/playlists/command/websocket/crypto）不改业务源码通过契约测试。
 - Cloudflared（command/fs：下载二进制+tar.gz 解压+启动后台进程）通过。

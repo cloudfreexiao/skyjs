@@ -4,6 +4,15 @@ AGENTS.md 的详细版：编码规范全文、C/JS 边界、验收测试与排�
 遗留事项与已知限制见 [TODO.md](TODO.md)，历史演进与问题归因档案见
 [HISTORY.md](HISTORY.md)，验收矩阵速览见根 [README.md](../README.md)，性能基线见 [bench.md](bench.md)。
 
+> **文档口径总说明（现状／迁移前）**：本文描述的是**当前代码**的实现与命名——
+> 扁平 `skynetcore.*`（`send`/`readFile`/`socket`/`pack` 混在顶层）与逐库加载键
+> （`jsLoader`/`jsSocket`/`jsCluster`/`jsGateserver`）。目标架构改为按能力分组
+> （`skynetcore.runtime`/`.fs`/`.net`/`.seri`/…）、CommonJS 单一 `require` 入口，加载键
+> 收敛为 `jsBootstrap`/`jsModuleRoot`/`jsModuleSource`，见
+> [node-compatibility.md](node-compatibility.md) §16.3–16.5 与
+> [infra/01-conventions.md](infra/01-conventions.md) §2–3。目标设计以那两份为准；
+> 重构落地前本文保持现状口径，全文出现的旧命名按"迁移前"理解。
+
 ## 验收测试
 
 自动化验收:`make test`(tools/run-tests.js 逐行断言,覆盖全部场景);
@@ -44,6 +53,14 @@ build/          # 中间产物（gitignore）
 ```
 
 ## C/JS 边界（关键 API 面）
+
+> **口径说明（现状／迁移前）**：本节描述的是**当前代码**的扁平 `skynetcore.*`
+> 命名与逐库加载键（`jsLoader`/`jsSocket`/`jsCluster`/…）。目标架构改为按能力
+> 分组（`skynetcore.runtime`/`.fs`/`.net`/`.seri`/…）、单一 `require` 入口，加载键
+> 收敛为 `jsBootstrap`/`jsModuleRoot`/`jsModuleSource`，详见
+> [node-compatibility.md](node-compatibility.md) §16.3–16.5 与
+> [infra/01-conventions.md](infra/01-conventions.md) §2–3。本节在重构落地前保持
+> **现状口径**，与目标命名冲突时以目标设计为准，重构时同步改写本节。
 
 `snjs.c` 向 JS 注入全局 `skynetcore` 对象：`send / redirect / command / intCommand / genId / now /
 error / mem / response / errorResponse / pack / unpack / str / readFile / writeFile`，
@@ -209,6 +226,14 @@ C/JS 边界：注入到 JS 的属性名同样遵守 JS camel 规范（`intComman
 
 **冻结域**（字符串字面量逐字保留，勿因"看起来是 snake"而改）：
 
+> **口径说明（现状／迁移前）**：下面列的逐库加载键（`jsLoader`/`jsSocket`/…）是
+> **当前实现**的冻结契约。目标架构把这些收敛为 `jsBootstrap`/`jsModuleRoot`/
+> `jsModuleSource`（+ 原生产物的 `cpath`/`extpath`），见
+> [node-compatibility.md](node-compatibility.md) §16.5、
+> [infra/01-conventions.md](infra/01-conventions.md) §3。收敛完成前上面这些键仍是
+> 逐字冻结的协议字符串；`int_command`/`intcommand` 一类退役名的规则与目标无关，
+> 继续有效。
+
 - env/config 键：`jsLoader`、`jsSocket`、…、`jsMemLimit`、`__json_config`、
   `thread/cpath/bootstrap` 等——配置域契约。
 - 线协议与命令串：skynet 命令（GETENV/SIGNAL/EXIT/REG/NAME/LAUNCH/QUERY/TIMEOUT）、
@@ -248,7 +273,9 @@ C/JS 边界：注入到 JS 的属性名同样遵守 JS camel 规范（`intComman
   - CI 通过 GitHub Actions 矩阵自动构建三平台(`.github/workflows/build.yml`)；
     Windows 测试套件暂未启用（依赖 POSIX 信号等工具链）。
 - C 构建由 Makefile 负责（npm 管不到 C 编译链接）;package.json 管 JS 开发工具链
-  （lint、TS 转译），运行时依旧零 npm 依赖，`node_modules/` 不进运行时。
+  （lint、TS 转译）。默认/内建发行不引入运行时 npm 依赖，`node_modules/` 不随产物
+  发行；可选能力可由 `@skyjs/*` 包提供（含预编译原生产物或 C/C++ 源码，构建期
+  链接），见 node-compatibility §3.1–3.2。
 - **构建开关**（正交，可组合，默认全关）：
   - `STATIC=1`：把 `logger`/`snjs`/`skyclusterd` 静态链进 `skyjs`，产出单文件。
     实现遵守「不改 `3rd/`、也不接管 `skynet_module.c`」——仅在链接层 wrap `dlopen`

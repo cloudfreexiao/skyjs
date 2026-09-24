@@ -1,7 +1,9 @@
-# 11 — 测试体系（`testing`）
+# 11 — 测试体系（`skyjs/testing`）
 
 依赖：无（可独立使用）。能力键：常驻可用。
-涉及：新增 `js/testing.js`（`globalThis.testing`）；进程级集成沿用现有
+归层：**引擎内建**（node-compatibility §16.4.1、ND-33）。`testing` 是引擎自验证契约：
+引擎的默认构建自检用例依赖它，因此不能放进 `packages/`。
+涉及：`js/builtins/skyjs/testing.js`（`require('skyjs/testing')`）；进程级集成沿用现有
 `tools/run-tests.js`；新增 sanitizer / 泄漏 / long-run 套件约定。
 
 ## 11.1 分层
@@ -15,7 +17,7 @@
 
 ## 11.2 `testing` 库（stable）
 
-`globalThis.testing`。在测试 service 内运行，输出可被 `run-tests.js` 断言标记捕获。
+`require('skyjs/testing')`。在测试 service 内运行，输出可被 `run-tests.js` 断言标记捕获。
 
 ```js
 testing.suite(name, fn)

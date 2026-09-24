@@ -3,6 +3,12 @@
 > 历史演进记录与问题归因档案已移至 [HISTORY.md](HISTORY.md)；验收矩阵见根目录
 > [README.md](../README.md)，现行规范见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
+> **命名口径（现状／迁移前）**：本文记的 `skynetcore.socket`/`skynetcore.command`/
+> `skynetcore.mem()` 等是**当前代码**的扁平命名。目标架构按能力分组
+> （`skynetcore.net`/`.runtime`/…，见 [node-compatibility.md](node-compatibility.md)
+> §16.5 与 [infra/01-conventions.md](infra/01-conventions.md) §3）；重构落地时本文
+> 同步改写。各条限制的**行为结论**与命名无关，仍然有效。
+
 ## 待办
 
 1. **Linux 验证未做**：目前仅在 macOS/arm64 全链验证。Makefile 已有 Linux 分支

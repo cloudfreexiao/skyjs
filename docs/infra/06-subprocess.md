@@ -1,14 +1,20 @@
-# 06 — 子进程（`subprocess`）
+# 06 — 子进程（Node `child_process` + `skyjs/subprocess`）
 
 依赖：02（stream、取消）。能力键：`features().subprocess`。
 平台：仅桌面/服务器（Linux/macOS/Windows）；**移动端不支持**，调用抛 `ERR_UNSUPPORTED_PLATFORM`。
-涉及：新增 `js/subprocess.js`（`globalThis.subprocess`）、`service/subprocess-service.js`
+归层：**引擎内建**（node-compatibility §16.4.1、ND-33）。`subprocess` 与层 1 的
+`child_process` 共用 `.subprocess` owner 与 `internal/subprocess-core.js`。
+涉及：`js/builtins/skyjs/subprocess.js`（`require('skyjs/subprocess')`）、
+`js/builtins/child_process.js`（Node facade）、`service/subprocess-service.js`
 （owner，注册名 `.subprocess`）、`service-src/js-subprocess.c`（`skynetcore.subprocess`）。
+
+裁剪构建（移动端）下该模块仍存在，调用抛 `ERR_UNSUPPORTED_PLATFORM`。引擎内建实现
+不依赖 `node_modules`，保证默认构建自洽。
 
 ## 6.1 架构
 
 - 子进程句柄由 owner service 独占管理；stdio 管道读循环在 owner 内运行，通过
-  `stream` + 二进制消息把 stdout/stderr 流式推给调用方。
+  `internal/stream-core` + 二进制消息把 stdout/stderr 流式推给调用方。
 - 每个调用方（尤其插件）有独立命名空间与配额；owner 统一在取消/超时/服务退出时
   `kill` 并回收，杜绝孤儿进程（对齐 Songloft `Cleanup`/`managedProcess` 语义）。
 
@@ -27,9 +33,9 @@ skynetcore.subprocess.close(fd)
 
 移动端构建不编入该模块；`features().subprocess.available === false`。
 
-## 6.3 `subprocess` 客户端库（stable）
+## 6.3 `skyjs/subprocess` 客户端库（stable）
 
-`globalThis.subprocess`。
+`require('skyjs/subprocess')`。
 
 ```js
 // 一次性执行，收集输出（有上限）
@@ -65,6 +71,14 @@ subprocess.version -> string
 - 取消/超时：`signal`/`timeoutMs` 触发 → `kill` 子进程（先 TERM 后 KILL）并回收管道。
 - 安全：`program` 解析与允许目录由调用方（如插件宿主）在上层限制；本库不隐式扩展 PATH。
 - Windows：信号语义映射（无 POSIX signal 时用 TerminateProcess）；退出码/超时一致对外。
+
+### Node `child_process` facade
+
+`require('child_process')` 在本库之上做 Node 语义适配：`spawn`/`spawnSync`/`exec`/
+`execFile`（含 Sync 变体）/`kill`，`fork` 后置；`ChildProcess.stdin/stdout/stderr`
+暴露 `stream` facade 的 `Readable`/`Writable`。范围与差异见
+[../node-compatibility.md](../node-compatibility.md) §10.2。facade 不新增进程能力，
+也不绕过 `.subprocess` owner 的权限与配额。
 
 ## 6.4 错误码
 

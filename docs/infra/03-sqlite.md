@@ -1,39 +1,49 @@
 # 03 — SQLite 数据服务（`db`）
 
 依赖：02（可取消 RPC、二进制）。构建开关：`SQLITE=1`（见 13）。能力键：`features().sqlite`。
-涉及：`js/db.js`（客户端库）、`service/sqlite-service.js`（owner，注册名 `.sqlite`）、
-`service-src/js-sqlite.c`（`skynetcore.sqlite` 原生绑定）。
+归层：**`@skyjs` 包**（node-compatibility §16.4.1、ND-33），不内建。
+涉及：`packages/db/`（发布为 `@skyjs/db`）——`index.js` 入口、`lib/`（`client`/`pool`/
+`migrate`）、`native/src/js-sqlite.c` + 固定版本 SQLite、`service/sqlite-service.js`
+（owner，注册名 `.sqlite`）、`types/index.d.ts`、`test/`。
+
+`skyjs/db` 是保留入口名；引擎内建表不含它，loader 按 node-compatibility §3.1 层 2
+回退 `node_modules/@skyjs/db`。包的原生形态按 node-compatibility §3.2（cservice，
+串行执行四符号约定）与 §3.4.3（C 桥，`skyjs_ext_abi`/`skyjs_ext_init`）择一。包内
+不得 `require('js/internal/*')`、不得直接调用 `skynetcore.*`；`skynetcore.sqlite`
+这一名字不再存在（§16.5），包内原生绑定挂在自己的 `module.native` 上。
 
 ## 3.1 架构：单 owner + 只读副本
 
-- 每个数据库文件由一个 owner service 独占（`skynet.newservice("snjs service/sqlite-service.js <dbPath>")`）。
+- 每个数据库文件由一个 owner service 独占（`skynet.newservice("@skyjs/db",
+  "service/sqlite-service.js <dbPath>")`，路径相对包根，§16.8）。
 - owner 内部：1 个写连接（串行，Skynet 单服务天然串行化）+ 可选 N 个只读连接（WAL 下并发读）。
-- 原生 `skynetcore.sqlite` 只在 owner 内同步调用（prepare/step/finalize）。其它服务
+- 原生绑定（`module.native.sqlite`）只在 owner 内同步调用（prepare/step/finalize）。其它服务
   一律通过 `db` 客户端库异步 `skynet.call` 到 owner，绝不直接持有原生句柄。
 - `:memory:` 库强制单连接（语义要求，见 Songloft 现状注释）。
 
-## 3.2 `skynetcore.sqlite`（internal，仅 owner 使用）
+## 3.2 包内原生绑定（`module.native`，仅 owner 使用）
 
-同步、非阻塞（本地文件 I/O）原生原语，不对业务暴露：
+同步、非阻塞（本地文件 I/O）原生原语，不对业务暴露。以下名字描述包内 C 桥导出的
+函数面（挂 `module.native`），**不是引擎的 `skynetcore.*` 命名空间**（§16.5）：
 
 ```
-skynetcore.sqlite.open(path, flags) -> handle           // flags: readonly/readwrite/create/memory/wal
-skynetcore.sqlite.close(handle)
-skynetcore.sqlite.prepare(handle, sql) -> stmt
-skynetcore.sqlite.bind(stmt, index, value)              // 类型见 §3.4
-skynetcore.sqlite.step(stmt) -> "row" | "done"
-skynetcore.sqlite.column(stmt, index) -> value
-skynetcore.sqlite.columnMeta(stmt) -> [{name, type}]
-skynetcore.sqlite.reset(stmt) / finalize(stmt)
-skynetcore.sqlite.exec(handle, sql)                     // 无结果批处理
-skynetcore.sqlite.last_insert_rowid(handle) -> BigInt
-skynetcore.sqlite.changes(handle) -> number
-skynetcore.sqlite.errcode(handle) -> {code, msg}
+native.sqlite.open(path, flags) -> handle           // flags: readonly/readwrite/create/memory/wal
+native.sqlite.close(handle)
+native.sqlite.prepare(handle, sql) -> stmt
+native.sqlite.bind(stmt, index, value)              // 类型见 §3.4
+native.sqlite.step(stmt) -> "row" | "done"
+native.sqlite.column(stmt, index) -> value
+native.sqlite.columnMeta(stmt) -> [{name, type}]
+native.sqlite.reset(stmt) / finalize(stmt)
+native.sqlite.exec(handle, sql)                     // 无结果批处理
+native.sqlite.last_insert_rowid(handle) -> BigInt
+native.sqlite.changes(handle) -> number
+native.sqlite.errcode(handle) -> {code, msg}
 ```
 
 ## 3.3 `db` 客户端库（stable）
 
-`globalThis.db`。所有方法返回 Promise，均接受可选末参 `{ signal, timeoutMs }`。
+`require('skyjs/db')`。所有方法返回 Promise，均接受可选末参 `{ signal, timeoutMs }`。
 
 ```js
 db.open(path, opts?) -> Promise<Db>

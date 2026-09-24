@@ -1,16 +1,30 @@
-# 04 — HTTP 应用与流媒体传输（`webapp` + `httpd/httpc` 扩展）
+# 04 — HTTP 应用与流媒体传输（`skyjs/webapp` + Node `http`/`https`）
 
-依赖：02（stream、取消）、现有 `js/http.js`(httpd/httpc/httpInternal)、`js/socket.js`、
-`js/sockethelper.js`、`js/websocket.js`。能力键：`features().httpStream`。
-涉及：新增 `js/webapp.js`（`globalThis.webapp`）；扩展 `js/http.js`。
+依赖：02（stream 内核、取消）、`js/internal/http-core.js`（协议解析，原
+`js/http.js` 的 `httpInternal`）、`js/internal/net-core.js`（合并 `js/socket.js` +
+`js/sockethelper.js`）。能力键：`features().httpStream`。
 
-设计原则：**保留** `http.js` 的协议解析（`recvHeader/parseHeader/recvChunkedBody`）
-与连接池不动；在其上叠加应用框架与流式能力。现有 `httpd.readRequest/writeResponse`、
-`httpc.request` 语义保持兼容，新增能力用新方法名。
+归层（node-compatibility §16.4.1、ND-33）：
+
+- **引擎内建**：`js/internal/http-core.js`（唯一协议内核）、`js/internal/net-core.js`、
+  `js/builtins/http.js` + `js/builtins/https.js` + `js/builtins/net.js`/`tls.js`
+  （Node facade）。
+- **`@skyjs` 包**：`skyjs/webapp` → `packages/webapp/`（`lib/app.js`、`lib/middleware.js`
+  等），`skyjs/websocket` → `packages/websocket/`（`lib/handshake.js`、`lib/frame.js` 等）。
+
+`skyjs/webapp` 与 `skyjs/websocket` 是保留入口名，但引擎内建表不含它们；loader 按
+§3.1 层 2 回退 `node_modules/@skyjs/<name>`。两者站在**公开的** `http`/`net`/`stream`
+之上，不得 `require('js/internal/http-core.js')`、不得触 `skynetcore.*`（§16.4.1
+规则 1）。
+
+设计原则：**一份内核、多个 facade**。`recvHeader/parseHeader/recvChunkedBody` 与连接池
+下沉到 `js/internal/http-core.js`，只实现一次；Node `http`/`https` facade 直接用它，
+`@skyjs/webapp` 走公开 `http`/`net`/`stream` 面。旧 `httpd`/`httpc`/`httpInternal`
+全局随重构移除，不保留兼容层。
 
 ## 4.1 `webapp` 应用框架（stable）
 
-`globalThis.webapp`：路由、中间件、参数、统一错误、请求生命周期与取消。
+`require('skyjs/webapp')`：路由、中间件、参数、统一错误、请求生命周期与取消。
 
 ```js
 webapp.create(opts?) -> App
@@ -81,42 +95,50 @@ ctx.multipart() -> AsyncIterator<Part>
 
 - `ctx.stream(readable)`：
   - 有 `content-length` → 定长；否则 `Transfer-Encoding: chunked`。
-  - 通过 `stream.pipe` 到 socket，遵守 §2.3 背压：socket 写缓冲高于水位则暂停上游拉取。
+- 通过 `streamCore.pipe` 到 socket，遵守 §2.3 背压：socket 写缓冲高于水位则暂停上游拉取。
   - 客户端断开 → `ctx.signal` abort → 取消 readable（进而取消底层 DB/media/proxy）。
 - 明确支持大音频、HLS 切片、实时转码流、反向代理流；**禁止**把整响应缓冲进 JS 堆。
 
-## 4.5 `httpd` 扩展（server 低层，兼容新增）
+## 4.5 `internal/http-core`（server 侧内核，internal）
 
-保留现有 `httpd.readRequest/writeResponse`；新增：
+`js/internal/http-core.js` 是 server 低层原语，只给 `builtins/http.js`/`https.js`
+使用，不对外暴露（包不得 require）。`@skyjs/webapp` 走公开 `http`/`net`/`stream`
+面。原 `httpd.*` 能力下沉到这里：
 
 ```js
-httpd.writeHead(writeFn, status, headers)                  // 只写头
-httpd.writeStream(writeFn, readable, headers, {signal})    // 异步流式 body（背压感知）
-httpd.readBodyStream(reader, headers) -> Readable          // 流式读请求体
+httpCore.readRequest(reader) -> { method, url, headers, body }
+httpCore.writeHead(write, status, headers)                  // 只写头
+httpCore.writeStream(write, readable, headers, {signal})    // 异步流式 body（背压感知）
+httpCore.readBodyStream(reader, headers) -> Readable        // 流式读请求体
 ```
 
-现有同步 generator 版 `writeResponse(writeFn, code, body|fn, header)` 不变（小响应仍可用）。
+`builtins/http.js` 在此之上实现 Node 语义的 `createServer`/`Server`/
+`IncomingMessage`/`ServerResponse`；`@skyjs/webapp` 在同一公开 facade 之上实现自有
+`ctx` 模型。
 
-## 4.6 `httpc` 扩展（client 低层，兼容新增）
+## 4.6 `internal/http-core`（client 侧内核，internal）
 
-保留现有 `httpc.request`（缓冲式）；新增流式与策略：
+原 `httpc.request` 的客户端能力同样下沉到 `internal/http-core.js`，供 Node
+`http`/`https` facade 与 `builtins/fetch.js` 复用：
 
 ```js
-httpc.requestStream(method, url, opts?) -> Promise<{ status, headers, body: Readable }>
+httpCore.request(method, url, opts?) -> Promise<{ status, headers, body: Readable }>
 // opts = { headers?, body?: ArrayBuffer|Readable, signal?, timeoutMs?,
 //          followRedirects?: number, cookieJar?, proxy?: url, caFile?,
 //          insecureTls?: bool, maxBody?: bytes }
-httpc.cookieJar() -> CookieJar                 // set/get，供多请求共享
+httpCore.cookieJar() -> CookieJar              // set/get，供多请求共享
 ```
 
+- Node `http.request`/`https.request` 与 `fetch` 各自做语义适配；缓冲式便捷接口
+  建在流式内核之上，不反向依赖。
 - redirect：`followRedirects` 上限，默认关闭（对齐 X-Fetch-No-Redirect 场景）。
 - proxy：通用 HTTP proxy；`insecureTls` 仅在能力门控下生效（对齐 net:insecure-tls）。
 - body/time 限额：`maxBody` 超限 `ERR_LIMIT_EXCEEDED`；`timeoutMs` 覆盖含 body 读取的整生命周期。
-- 流式：`body` 为 `Readable` 时流式上传；响应 `body` 为 `Readable` 时流式下载，配合 `stream.pipe`。
+- 流式：`body` 为 `Readable` 时流式上传；响应 `body` 为 `Readable` 时流式下载，配合 `streamCore.pipe`。
 
 ## 4.7 socket 断连 → 取消映射
 
-- server：每个连接维护 `AbortController`；`onClose/onError`（见 `js/socket.js`）触发
+- server：每个连接维护 `AbortController`；`onClose/onError`（见 `js/internal/net-core.js`）触发
   `abort(ERR_CANCELLED)`，`ctx.signal` 随之 abort，向下游传播（DB 查询、media 转码、proxy 拉取）。
 - 慢客户端：写背压（§4.4）保证不缓冲整首音频；100 并发慢读连接下内存/FD 稳定。
 

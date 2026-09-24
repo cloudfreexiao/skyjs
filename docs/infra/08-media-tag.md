@@ -1,37 +1,53 @@
-# 08 — 跨平台媒体（`media`）与标签（`tag`）
+# 08 — 跨平台媒体（`skyjs/media`）与标签（`skyjs/tag`）
 
 依赖：02（stream、取消）、05（fs）。构建开关：`MEDIA=libav`（见 13）。
 能力键：`features().media`、`features().tag`。
-涉及：新增 `js/media.js`（`globalThis.media`）、`js/tag.js`（`globalThis.tag`）、
-`service/media-service.js`（owner，注册名 `.media`）、`service-src/js-media.c`
-（`skynetcore.media`，libav 封装）、`service-src/js-tag.cc`（`skynetcore.tag`，TagLib C++ 适配）。
+归层：**`@skyjs` 包**（node-compatibility §16.4.1、ND-33），不内建。
+涉及：`packages/media/`（发布为 `@skyjs/media`）——`index.js`、`lib/`（`client`/
+`probe`/`transcode`/`thumbnail`/`hls`）、`native/src/js-media.c`（libav 封装）、
+`service/media-service.js`（owner，注册名 `.media`）；`packages/tag/`（发布为
+`@skyjs/tag`）——`index.js`、`lib/`（`client`/`fields`）、`native/src/js-tag.cc`
+（TagLib C++ 适配）、可选 `service/tag-service.js`（`.tag`）。
+
+引擎内建表不含这两个入口，loader 按 node-compatibility §3.1 层 2 回退
+`node_modules/@skyjs/<name>`。包内原生部分按 §3.2/§3.4 携带预编译产物、静态库或
+C/C++ 源码；移动端在应用构建期把静态库或源码链入 AAR/XCFramework（§12.4）。
+移动端限制的是"运行时 `dlopen` 动态加载"这一形态，不影响包与源码放进
+`node_modules`。
+
+重任务由包内 L2 的 `.media` owner service 承担，包内 C 桥只提供同步原语；两者都随
+包分发，不写进引擎 `service-src/`。包内不得 `require('js/internal/*')`、不得直接
+调用 `skynetcore.*`（§16.4.1 规则 1）。
 
 ## 8.1 架构
 
 - `.media` owner service 独占 libav 上下文与一个受控 **worker pool**（避免单服务被长转码
-  独占；重任务在 worker 内运行，结果经 `stream` + 流控回传）。
+  独占；重任务在 worker 内运行，结果经 `streamCore` + 流控回传）。
 - 移动端媒体走**内嵌 libav**（不依赖外部 ffmpeg 进程），因此不受 06 子进程限制。
 - `tag` 读写既可并入 `.media` owner，也可独立 `.tag` service（构建期决定）；接口对业务无差别。
 - 所有任务接受 `{ signal, timeoutMs }`；取消即中止 libav 处理并释放上下文。
 
-## 8.2 `skynetcore.media` / `skynetcore.tag`（internal）
+## 8.2 包内原生绑定（`module.native`，仅 owner 使用）
+
+以下名字描述包内 C 桥导出的函数面（挂各自包的 `module.native`），**不是引擎的
+`skynetcore.*` 命名空间**（§16.5）：
 
 ```
-// media（libav）
-skynetcore.media.probe(inputSpec) -> info
-skynetcore.media.openTranscode(spec) -> task            // 返回可拉取的输出流句柄
-skynetcore.media.readOutput(task, ab) -> n | "eof"
-skynetcore.media.cancel(task) / close(task)
+// media（libav），挂 @skyjs/media 的 module.native
+native.media.probe(inputSpec) -> info
+native.media.openTranscode(spec) -> task            // 返回可拉取的输出流句柄
+native.media.readOutput(task, ab) -> n | "eof"
+native.media.cancel(task) / close(task)
 // inputSpec: { path } | { url, headers, range } | { fd }
 
-// tag（TagLib）
-skynetcore.tag.read(path) -> fields
-skynetcore.tag.write(path, fields, pictures?)
+// tag（TagLib），挂 @skyjs/tag 的 module.native
+native.tag.read(path) -> fields
+native.tag.write(path, fields, pictures?)
 ```
 
 ## 8.3 `media` 客户端库（stable）
 
-`globalThis.media`。均接受可选末参 `{ signal, timeoutMs }`。
+`require('skyjs/media')`。均接受可选末参 `{ signal, timeoutMs }`。
 
 ```js
 media.probe(input, opts?) -> Promise<MediaInfo>
@@ -61,7 +77,7 @@ media.codecs() -> string[]                 // 当前构建支持的编解码
 
 ## 8.4 `tag` 客户端库（stable）
 
-`globalThis.tag`：音频标签与封面读写（对齐 Songloft `pkg/tag` 覆盖的格式）。
+`require('skyjs/tag')`：音频标签与封面读写（对齐 Songloft `pkg/tag` 覆盖的格式）。
 
 ```js
 tag.read(path) -> Promise<Tags>
